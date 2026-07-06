@@ -84,6 +84,19 @@ Les cas sont dans `evals/cases.mjs` (ajouter un cas = ajouter une entree `{name,
 `turns` est une sequence de transcripts envoyes a la meme instance de `LlmInterpreter`, pour couvrir
 les enchainements multi-tours comme clarify -> reponse).
 
+## Pistes explorees, reportees
+
+- **Entree audio directe pour Gemma (2026-07-06)** : `gemma4:12b` (notre modele actuel) ne supporte
+  PAS l'audio. Seules les variantes edge `gemma4:e2b`/`gemma4:e4b` (encodeur audio ~300M params) le
+  supportent -- ca permettrait de sauter l'etape Web Speech API (STT navigateur) et d'envoyer l'audio
+  directement au LLM. Ecarte pour l'instant : (1) on perdrait la segmentation automatique d'enonce
+  de `SpeechRecognition` (`onspeechend`) et il faudrait implementer notre propre detection d'activite
+  vocale (VAD) -- gros morceau d'ingenierie, pas juste changer de modele ; (2) risque de regression du
+  respect strict du schema JSON avec un modele plus petit (a revalider avec `evals/` si tente un jour) ;
+  (3) aucun de nos bugs recents ne venait d'une mauvaise transcription -- pas de probleme concret a
+  resoudre pour l'instant. A refaire les recherches ci-dessus si reconsidere (Ollama library gemma4,
+  tags `e2b`/`e4b` pour l'audio).
+
 ## Fichiers
 
 - `protocol.js` — encodage/decodage des trames BLE (pure, sans dependance navigateur)
