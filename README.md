@@ -6,7 +6,8 @@ pilote le robot Amicus en Web Bluetooth. Voir [`PROTOCOL.md`](PROTOCOL.md) pour 
 protocole BLE decode, et [`PROJECT_VOICE_APP.md`](PROJECT_VOICE_APP.md) pour le contexte produit.
 
 Demarre comme prototype, devenu le projet principal -- on itere dessus fonctionnalite par
-fonctionnalite vers la vision finale (cf. `PROJECT_VOICE_APP.md`).
+fonctionnalite vers la **vision finale : [`VISION.md`](VISION.md)** (un scorer automatique de
+ping-pong par vision par ordinateur, dont le pilotage vocal du robot est la premiere brique).
 
 ## Lancer
 
