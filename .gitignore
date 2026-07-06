@@ -1,0 +1,16 @@
+# Captures BLE brutes et extractions (materiel de reverse-engineering, pas du code -- les
+# conclusions utiles sont deja distillees dans PROTOCOL.md)
+amicus_capture*.zip
+amicus_capture*_extracted/
+full_timeline*.tsv
+att_packets.tsv
+write_requests.tsv
+
+# APK officiel Amicus et sa decompilation (tiers, volumineux, pas a versionner)
+apk/
+apk_decompiled/
+apk_decompiled_full/
+
+# Node / OS
+node_modules/
+.DS_Store

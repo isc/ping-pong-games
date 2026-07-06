@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Amicus - controle vocal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; background: #111; color: #eee; }
+    h1 { font-size: 1.3rem; }
+    .config { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .config input { flex: 1; min-width: 200px; padding: 0.4rem; background: #222; color: #eee; border: 1px solid #444; }
+    .actions { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    button { padding: 0.6rem 1rem; font-size: 1rem; cursor: pointer; }
+    #status { font-size: 1.2rem; margin: 1rem 0; }
+    #log { font-family: monospace; font-size: 0.85rem; max-height: 60vh; overflow-y: auto; border-top: 1px solid #444; padding-top: 0.5rem; }
+    #log div { padding: 0.15rem 0; border-bottom: 1px solid #222; }
+  </style>
+</head>
+<body>
+  <h1>🏓 Amicus — controle vocal</h1>
+
+  <div class="config">
+    <input id="llm-url" value="http://100.72.204.126:11434" placeholder="URL du serveur Charras (Ollama)" />
+    <input id="llm-model" value="gemma4:12b" placeholder="Modele" />
+  </div>
+
+  <div class="actions">
+    <button id="connect-robot">🔵 Connecter le robot</button>
+    <button id="start-listening" disabled title="Connecte d'abord le robot">🎤 Demarrer l'ecoute</button>
+  </div>
+
+  <div id="status">En attente...</div>
+  <div id="log"></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
