@@ -1,10 +1,12 @@
-# Amicus — controle vocal (prototype)
+# Amicus — controle vocal
 
-Petit projet intermediaire : page web qui ecoute le micro en continu (Web Speech API), envoie
-la transcription a un LLM auto-heberge (serveur Charras, Ollama) pour interpreter la commande
-en langage naturel, puis pilote le robot Amicus en Web Bluetooth. Voir [`../PROTOCOL.md`](../PROTOCOL.md)
-pour le detail du protocole BLE decode, et [`../PROJECT_VOICE_APP.md`](../PROJECT_VOICE_APP.md)
-pour le contexte produit.
+Page web qui ecoute le micro en continu (Web Speech API), envoie la transcription a un LLM
+auto-heberge (serveur Charras, Ollama) pour interpreter la commande en langage naturel, puis
+pilote le robot Amicus en Web Bluetooth. Voir [`PROTOCOL.md`](PROTOCOL.md) pour le detail du
+protocole BLE decode, et [`PROJECT_VOICE_APP.md`](PROJECT_VOICE_APP.md) pour le contexte produit.
+
+Demarre comme prototype, devenu le projet principal -- on itere dessus fonctionnalite par
+fonctionnalite vers la vision finale (cf. `PROJECT_VOICE_APP.md`).
 
 ## Lancer
 
@@ -12,7 +14,6 @@ Necessite Chrome ou Edge (Web Speech API + Web Bluetooth), servi en **http://loc
 **https** (obligatoire pour le micro et le Bluetooth — `file://` ne fonctionne pas) :
 
 ```bash
-cd voice-app
 python3 -m http.server 8000
 # puis ouvrir http://localhost:8000 dans Chrome
 ```
@@ -79,7 +80,6 @@ serveur Charras, et verifie que l'interpretation produit les actions attendues -
 un changement de prompt/schema sans avoir a retester a la voix a chaque fois.
 
 ```bash
-cd voice-app
 node evals/run.mjs                          # tous les cas, contre le Charras par defaut
 node evals/run.mjs --filter pattern         # seulement les cas dont le nom contient "pattern"
 LLM_BASE_URL=http://192.168.1.50:11434 node evals/run.mjs   # contre un autre serveur

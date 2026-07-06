@@ -80,7 +80,7 @@ précédent de 3000ms) — la marge de sécurité prime sur l'optimisation du tr
 
 **Implication pratique** : l'appareil qui héberge la page (Mac, téléphone...) doit rester actif pendant
 toute la session — s'il se met en veille, le `setInterval` du keep-alive s'arrête (ou la connexion BLE
-est coupée par l'OS) et le robot s'arrêtera de la même façon. Voir `voice-app/app.js` pour l'usage de
+est coupée par l'OS) et le robot s'arrêtera de la même façon. Voir `app.js` pour l'usage de
 la Screen Wake Lock API à cet effet.
 | `0x21` | 33 | **StopPlay** | app → robot | aucun payload — trame `[0x2a,0x04,0x00,0x21]` |
 | `0x22` | 34 | **SetBallPerMin** | app → robot | 1 octet = cadence **littérale** en balles/minute (confirmé empiriquement : `0x14`=20 capturé pendant une session réglée à "20 balles/min") |
