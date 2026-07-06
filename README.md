@@ -26,14 +26,6 @@ python3 -m http.server 8000
 3. Cliquer **"Demarrer l'ecoute"**. Ensuite tout se fait a la voix : "plus vite", "moins vite",
    "stop", "reprends", "des coups droits", "des revers a gauche/droite/au milieu".
 
-## CORS sur le serveur Charras
-
-Confirme fonctionnel (2026-07-06, sessions reelles + evals) : le navigateur fait des requetes
-cross-origin vers `http://<charras>:11434` sans erreur CORS, pas de configuration supplementaire
-necessaire sur Ollama. Si ca venait a bloquer un jour (erreur CORS dans la console), la variable
-d'environnement `OLLAMA_ORIGINS` du conteneur Ollama (ex. `*` ou l'origine exacte de la page) est le
-levier a verifier en premier, suivi d'un redemarrage du conteneur.
-
 ## Ce qui est solide vs. ce qui est a calibrer
 
 - **Solide** (protocole verifie par code + capture BLE reelle) : connexion BLE, StartPlay, StopPlay,
