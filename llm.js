@@ -1,5 +1,11 @@
 // Interprete le langage naturel (transcrit par Web Speech API) via le LLM auto-heberge
-// sur le serveur "Charras" (Ollama, cf. home-infra/charras/README.md).
+// sur le serveur "Charras" (Ollama, cf. home-infra/charras/README.md), servi en HTTPS via
+// `tailscale funnel` + un reverse-proxy nginx qui expose Ollama sous /llm/ (meme origine que
+// la page -- evite le mixed-content HTTPS->HTTP et le CORS). Voir home-infra/charras/SETUP.md.
+// Le reverse-proxy exige un header X-Api-Key (cf. `apiKey`) pour ecarter les scanners/bots qui
+// tomberaient sur le sous-domaine *.ts.net public -- pas une vraie authentification, juste un
+// filtre contre l'abus opportuniste (le pilotage du robot passe par le Bluetooth du telephone,
+// pas par ce serveur, donc le risque reel ici est la conso GPU, pas le robot).
 //
 // Utilise l'API NATIVE Ollama (/api/chat), pas l'endpoint compatible OpenAI (/v1/chat/completions) :
 // bug Ollama connu (issue #15293, toujours ouverte en 2026-07) ou `think` n'est pas transmis a Gemma 4
@@ -53,12 +59,14 @@ const MAX_HISTORY_MESSAGES = 8; // ~4 echanges (user+assistant)
 export class LlmInterpreter {
   /**
    * @param {object} opts
-   * @param {string} opts.baseUrl - ex: "http://100.72.204.126:11434" (Tailscale) ou IP LAN du serveur Charras
+   * @param {string} opts.baseUrl - ex: "/llm" (chemin relatif, reverse-proxy nginx vers Ollama sur Charras)
    * @param {string} opts.model - ex: "gemma4:12b" (cf. home-infra/charras/README.md)
+   * @param {string} opts.apiKey - cle attendue par le reverse-proxy (header X-Api-Key), saisie par l'utilisateur
    */
-  constructor({ baseUrl, model }) {
+  constructor({ baseUrl, model, apiKey }) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.model = model;
+    this.apiKey = apiKey;
     this.history = [];
   }
 
@@ -102,7 +110,7 @@ export class LlmInterpreter {
     try {
       res = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': this.apiKey },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
@@ -115,10 +123,10 @@ export class LlmInterpreter {
             `ou verifie l'etat du conteneur Ollama.`
         );
       }
-      console.log('[LLM] fetch a echoue (reseau/CORS):', err);
+      console.log('[LLM] fetch a echoue (reseau):', err);
       throw new Error(
         `Impossible de joindre le serveur LLM (${this.baseUrl}). ` +
-          `Verifie qu'Ollama tourne sur Charras et que CORS est autorise (OLLAMA_ORIGINS). Detail: ${err.message}`
+          `Verifie qu'Ollama tourne sur Charras et que le reverse-proxy nginx est up. Detail: ${err.message}`
       );
     } finally {
       clearTimeout(timeoutId);

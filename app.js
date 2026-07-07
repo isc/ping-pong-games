@@ -107,6 +107,12 @@ document.getElementById('connect-robot').addEventListener('click', async () => {
   }
 });
 
+// La cle API n'est jamais codee en dur dans le depot (public) : saisie une fois a la main sur le
+// telephone et conservee en localStorage, pour ne pas avoir a la retaper a chaque session.
+const apiKeyInput = document.getElementById('llm-api-key');
+const STORED_API_KEY = localStorage.getItem('llm-api-key');
+if (STORED_API_KEY) apiKeyInput.value = STORED_API_KEY;
+
 const listenButton = document.getElementById('start-listening');
 listenButton.addEventListener('click', () => {
   if (!listening) {
@@ -116,7 +122,9 @@ listenButton.addEventListener('click', () => {
     }
     const baseUrl = document.getElementById('llm-url').value.trim();
     const model = document.getElementById('llm-model').value.trim();
-    llm = new LlmInterpreter({ baseUrl, model });
+    const apiKey = apiKeyInput.value.trim();
+    localStorage.setItem('llm-api-key', apiKey);
+    llm = new LlmInterpreter({ baseUrl, model, apiKey });
     voice = new VoiceIO({
       onTranscript: handleTranscript,
       onError: (err) => addLog(`Erreur reconnaissance vocale: ${err}`),
