@@ -9,7 +9,6 @@ const CADENCE_STEP = 5; // balles/minute par cran "normal"
 const CADENCE_MIN = 5;
 const CADENCE_MAX = 60;
 const DEFAULT_BALL_PER_MIN = 20;
-const SHOT_SLOT = 1; // slot du descripteur utilise pour les tirs a la voix
 
 // Facteurs de "magnitude" appliques a tous les crans (adjust.magnitude). "un peu" -> plus petit,
 // "beaucoup" -> plus gros. Arrondi au cran entier le plus proche.
@@ -56,7 +55,13 @@ const DEFAULT_SHOT = { speed: 12, spin: 2, sideSpin: 0, verticalAngle: 0 };
 // Etat persistant du "tir courant" (unites app) : les reglages continus (vitesse/hauteur/effet) que les
 // commandes "adjust" modifient par crans, et que shot/pattern reutilisent comme base.
 let currentShot = { ...DEFAULT_SHOT };
-let currentPlaceApp = ZONES.center; // derniere position G/D demandee (-8..+8 cote app)
+
+// Programme courant = liste des positions (app -8..+8) que le robot alimente en boucle. Une seule
+// position = flux continu a cet endroit ; plusieurs = alternance. Sert de base a chaque (re)lancer.
+let currentProgram = [ZONES.center];
+// `playing` : le robot alimente-t-il un flux en ce moment ? Sert a decider si un "adjust" doit
+// re-appliquer le programme au vol (echange en cours) ou juste memoriser le reglage (a plat).
+let playing = false;
 
 const log = document.getElementById('log');
 const statusEl = document.getElementById('status');
@@ -82,6 +87,7 @@ const robot = new AmicusRobot({
       addLog('⚪ Robot deconnecte');
       listenButton.disabled = true;
       listenButton.title = "Connecte d'abord le robot";
+      playing = false;
       if (listening) {
         voice.stop();
         listening = false;
@@ -95,6 +101,9 @@ const robot = new AmicusRobot({
     if (evt.kind === 'frame' && evt.type === 'AmicusMode' && evt.name !== lastLoggedMode) {
       lastLoggedMode = evt.name;
       addLog(`Etat robot: ${evt.name}`);
+      // Le robot peut s'arreter de lui-meme (fin de programme, bourrage, keep-alive rate) : on
+      // resynchronise `playing` pour ne pas croire qu'un echange tourne encore.
+      if (evt.name === 'STOPPED' || evt.name === 'STOPPING') playing = false;
     }
   },
 });
@@ -204,14 +213,13 @@ async function handleTranscript(transcript) {
           break;
         case 'stop':
           await robot.stopPlay();
+          playing = false;
           break;
         case 'resume':
-          // StartPlay(NORMAL) boucle nativement sur le robot (confirme par capture reelle), a
-          // condition que le keep-alive tourne (cf. robot.js : demarre/arrete automatiquement avec
-          // startPlay()/stopPlay()) -- reprend ce qui est deja en memoire du robot. Si l'utilisateur
-          // demandait aussi un repositionnement, le LLM doit avoir mis une action "shot" separee
-          // AVANT celle-ci dans la liste (cf. system prompt) -- pas de zone/shot_type ici.
-          await robot.startPlay(START_PLAY_MODE.NORMAL);
+          // (Re)lance le flux continu du programme courant (position(s) + reglages actuels). Le
+          // keep-alive demarre avec startPlay (cf. robot.js). Si l'utilisateur demandait aussi un
+          // repositionnement, le LLM a mis un "shot" separe AVANT dans la liste (cf. system prompt).
+          await playCurrentProgram();
           break;
         case 'shot':
           await sendShot(a.shot_type, a.zone);
@@ -271,23 +279,37 @@ async function adjustCadence(delta) {
 }
 
 // Modifie un champ continu du tir courant (vitesse/hauteur/effet) par un cran relatif EN UNITES APP,
-// clampe sur sa plage app, puis rejoue immediatement la balle pour un retour tangible.
+// clampe sur sa plage app. Si un echange est en cours, le changement se fait sentir au vol ; sinon il
+// est memorise et s'appliquera au prochain lancer.
 async function adjustBallParam(parameter, field, delta) {
   const { min, max } = APP_FIELD_RANGE[field];
   const before = currentShot[field];
   const after = Math.max(min, Math.min(max, before + delta));
   currentShot[field] = after;
   addLog(`${parameter}: ${before} → ${after} (app ${min}..${max})`);
-  await applyCurrentShot();
+  await reapplyIfPlaying();
 }
 
-// (Re)envoie le tir courant (position + reglages continus) et le teste sans toucher a l'exercice
-// enregistre. On convertit le modele app -> descripteur fil via appBallToWire (formules exactes de
-// l'app officielle). Partage par shot et par les adjust (retour immediat).
-async function applyCurrentShot() {
-  const wire = appBallToWire({ state: BALL_STATE.ENABLED, place: currentPlaceApp, ...currentShot });
-  await robot.setBallProperties(SHOT_SLOT, wire);
-  await robot.startSample();
+// Descripteurs fil du programme courant : chaque position croisee avec les reglages continus courants,
+// convertie modele app -> fil via appBallToWire (formules exactes de l'app officielle).
+function programBalls() {
+  return currentProgram.map((placeApp) => appBallToWire({ state: BALL_STATE.ENABLED, place: placeApp, ...currentShot }));
+}
+
+// Charge le programme courant (setAllBalls remplit les slots inutilises en DISABLED -> pas de balles
+// fantomes) et lance le flux continu. Le robot boucle nativement tant que le keep-alive tourne (demarre
+// par startPlay, cf. robot.js). Remplace l'ancien StartSample (qui envoyait ~4 balles non maitrisees).
+async function playCurrentProgram() {
+  await robot.setAllBalls(programBalls());
+  await robot.startPlay(START_PLAY_MODE.NORMAL);
+  playing = true;
+}
+
+// Un "adjust" pendant un echange re-applique le programme au vol pour que le changement se sente tout
+// de suite ; a l'arret on ne relance rien (pas de balle surprise) -- le reglage prend effet au prochain
+// lancer. La cadence, elle, est deja live via SetBallPerMin.
+async function reapplyIfPlaying() {
+  if (playing) await playCurrentProgram();
 }
 
 // BUG corrige (2026-07-06, teste avec Charly) : l'ancienne version ignorait completement `zone`
@@ -308,14 +330,14 @@ async function sendShot(shotType, zone) {
   const zoneKey = resolveZoneKey(shotType, zone);
   const placeApp = ZONES[zoneKey];
   if (placeApp === undefined) throw new Error(`Zone inconnue: ${shotType}/${zone}`);
-  currentPlaceApp = placeApp; // memorise la position pour les adjust suivants (qui rejouent ce tir)
-  await applyCurrentShot(); // reutilise les reglages continus courants (vitesse/hauteur/effet)
+  currentProgram = [placeApp]; // flux continu a cette position (avec les reglages courants)
+  await playCurrentProgram();
 }
 
-// Exercice en alternance (ex. "une balle a gauche, une a droite" en boucle) : contrairement a
-// sendShot() (une balle isolee via SetBallProperties+StartSample), on charge un vrai programme
-// multi-balles via SetAllBalls puis StartPlay -- confirme par capture reelle (2026-07-06) que le
-// robot boucle nativement entre les positions actives tant que le keep-alive tourne (cf. robot.js).
+// Exercice en alternance (ex. "une balle a gauche, une a droite" en boucle) : le robot boucle
+// nativement entre les positions actives tant que le keep-alive tourne (confirme par capture reelle
+// 2026-07-06). On charge le programme comme liste de positions, puis playCurrentProgram s'occupe du
+// setAllBalls + startPlay (avec les reglages continus courants).
 const PATTERN_MIN_POSITIONS = 2;
 const PATTERN_MAX_POSITIONS = 10; // SetAllBalls n'a que 10 emplacements (cf. PROTOCOL.md)
 
@@ -326,13 +348,11 @@ async function sendPattern(positions) {
   if (positions.length > PATTERN_MAX_POSITIONS) {
     throw new Error(`Pattern: ${PATTERN_MAX_POSITIONS} positions maximum`);
   }
-  const balls = positions.map(({ shot_type, zone }) => {
+  currentProgram = positions.map(({ shot_type, zone }) => {
     const zoneKey = resolveZoneKey(shot_type, zone);
     const placeApp = ZONES[zoneKey];
     if (placeApp === undefined) throw new Error(`Zone inconnue: ${shot_type}/${zone}`);
-    // memes reglages continus (vitesse/hauteur/effet) que le tir courant, convertis app -> fil
-    return appBallToWire({ state: BALL_STATE.ENABLED, place: placeApp, ...currentShot });
+    return placeApp;
   });
-  await robot.setAllBalls(balls);
-  await robot.startPlay(START_PLAY_MODE.NORMAL);
+  await playCurrentProgram();
 }
