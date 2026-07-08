@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Amicus - calibration</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    // Meme garde-fou que l'app principale : force le slash final pour que les imports relatifs
+    // (./robot.js, ./protocol.js) se resolvent sous /ping-pong-games/ et pas a la racine du domaine.
+    if (!location.pathname.endsWith('/') && !location.pathname.endsWith('.html')) {
+      location.replace(location.pathname + '/' + location.search + location.hash);
+    }
+  </script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 1rem auto; padding: 0 1rem; background: #111; color: #eee; }
+    h1 { font-size: 1.2rem; }
+    .row { margin: 0.8rem 0; padding: 0.5rem; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; }
+    .row label { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 0.3rem; }
+    .row .val { color: #6cf; font-family: monospace; }
+    .row input[type=range] { width: 100%; }
+    .row .presets { display: flex; gap: 0.4rem; margin-top: 0.3rem; }
+    .row .presets button { flex: 1; padding: 0.3rem; font-size: 0.8rem; background: #222; color: #ccc; border: 1px solid #444; border-radius: 4px; }
+    .row .hint { font-size: 0.75rem; color: #888; margin-top: 0.2rem; }
+    .actions { display: flex; gap: 0.5rem; margin: 1rem 0; }
+    button { padding: 0.6rem 1rem; font-size: 1rem; cursor: pointer; }
+    #fire { flex: 1; font-size: 1.3rem; padding: 0.9rem; background: #2a5; color: #fff; border: none; border-radius: 8px; }
+    #fire:disabled { background: #444; }
+    #wire { font-family: monospace; font-size: 0.8rem; color: #6cf; margin: 0.5rem 0; word-break: break-all; }
+    #log { font-family: monospace; font-size: 0.8rem; max-height: 30vh; overflow-y: auto; border-top: 1px solid #444; padding-top: 0.5rem; }
+    #log div { padding: 0.1rem 0; border-bottom: 1px solid #222; }
+  </style>
+</head>
+<body>
+  <h1>🎯 Amicus — calibration</h1>
+  <div class="actions">
+    <button id="connect">🔵 Connecter le robot</button>
+  </div>
+
+  <!-- les lignes de parametres sont generees par calibration.js -->
+  <div id="params"></div>
+
+  <div id="state">état robot : —</div>
+  <div id="wire">descripteur fil : —</div>
+  <div class="actions">
+    <button id="fire" disabled title="Connecte d'abord le robot">🏓 Tirer 1 balle</button>
+    <button id="stoprobot" disabled>⏹ Stop robot</button>
+    <button id="reset">↺ Défauts</button>
+  </div>
+  <p style="font-size:0.8rem;color:#888;margin:0.2rem 0 0.8rem">
+    Chaque tir reprogramme le robot avec UNE seule balle active (les autres slots desactives) : une balle
+    par tir, toujours avec les reglages affiches. Si la tete devait bouger beaucoup, le 1er tir peut etre
+    en transit — retire au meme reglage pour confirmer.
+  </p>
+
+  <div id="log"></div>
+
+  <script type="module" src="./calibration.js"></script>
+</body>
+</html>
