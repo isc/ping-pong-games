@@ -189,10 +189,29 @@ spin=5, sideSpin=6, speed=12, ballPerMin=6 — constants entre les 3 tests, seul
 | 0 | `0x08` |
 | +8 | `0x10` |
 
-La conversion pour `speed`/`spin`/`sideSpin`/`trajectoryLow`/`trajectoryHigh` (et pour `sector` en tant
-que zone plutôt que point) n'a pas encore été vérifiée de la même façon — probablement une table de
-calibration comme suspecté (point d'appel : `S1/s.java:231`), à vérifier au cas par cas si besoin avec
-la même méthode (capturer pendant qu'on joue une valeur connue sur l'app réelle).
+**Mise à jour — formule complète extraite du code (2026-07-08)** : la conversion modèle-app → descripteur
+fil est la fonction `e(Ball)` de `S1/s.java:212`. Ce n'est PAS une table de calibration mais des formules
+affines simples (recopiées à l'identique dans `protocol.js` → `appBallToWire`) :
+
+| Champ app | Échelle app | → octet fil | Neutre |
+|---|---|---|---|
+| `place` | -8..+8 | `place + 8` (0..16) | 0 → 8 |
+| `speed` | 1..25 (défaut 13) | `speed - 1` (0..24) | 13 → 12 |
+| `spin` | -5 (backspin)..+7 (topspin) | `spin + 5` (0..12) | 0 → 5 |
+| `sideSpin` | -90..+90° (pas 15°) | `round((sideSpin+90)/15)` (0..12) | 0 → 6 |
+| `verticalAngle` | -92..+61° | `verticalAngle + 92` → **trajectoryLow** (0..175) | 0 → 92 |
+| — | — | **trajectoryHigh = 0** (codé en dur) | — |
+
+**Calibration physique validée au robot (2026-07-08)**, en pilotant des tirs à une balle via
+`calibration.html` (lecture à distance des logs par l'auteur) :
+- **`trajectoryHigh` est inutilisé** (toujours 0). L'ancien `DEFAULT_SHOT_PARAMS` le posait par erreur.
+- **`verticalAngle`/`trajectoryLow` = hauteur/angle de l'arc** : +angle = arc plus haut ET plus loin
+  (régime sous ~45°, la portée culmine puis retombe).
+- **`speed` = distance/profondeur** (monotone : +speed = +loin).
+- **`spin` (topspin) fait replonger la balle** (effet Magnus) : indispensable pour qu'elle tombe sur la
+  table. Config de rallye validée (tombe au milieu) = le vrai drill Butterfly `exercise79` :
+  `speed=12, spin=2, verticalAngle=0, place=0` → fil `speed=11, spin=7, trajLow=92`. C'est le défaut de
+  `app.js` (`DEFAULT_SHOT`). Sans topspin (`spin=0`) la balle file tout droit et sort.
 
 ### `SetGlobalCycle` — payload (3 octets)
 

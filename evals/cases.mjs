@@ -10,6 +10,11 @@ function actionTypes(result) {
   return result.actions.map((a) => a.action);
 }
 
+// Actions "adjust" d'un parametre donne (helper pour les cas de reglage continu).
+function adjustsFor(result, parameter) {
+  return result.actions.filter((a) => a.action === 'adjust' && a.parameter === parameter);
+}
+
 export const CASES = [
   {
     name: 'resume simple',
@@ -33,17 +38,105 @@ export const CASES = [
     },
   },
   {
-    name: 'ralentir simple',
+    name: 'ralentir la cadence (simple)',
     turns: ['moins vite les balles'],
     expect([r]) {
-      assert.deepEqual(actionTypes(r), ['decrease_speed']);
+      const adj = adjustsFor(r, 'cadence');
+      assert.equal(adj.length, 1, 'attendu un adjust cadence');
+      assert.equal(adj[0].direction, 'decrease');
     },
   },
   {
-    name: 'accelerer simple',
+    name: 'accelerer la cadence (simple)',
     turns: ['plus vite'],
     expect([r]) {
-      assert.deepEqual(actionTypes(r), ['increase_speed']);
+      const adj = adjustsFor(r, 'cadence');
+      assert.equal(adj.length, 1, 'attendu un adjust cadence');
+      assert.equal(adj[0].direction, 'increase');
+    },
+  },
+  {
+    name: 'ralentir un peu -> magnitude small',
+    turns: ['ralentis un peu la cadence'],
+    expect([r]) {
+      const adj = adjustsFor(r, 'cadence');
+      assert.equal(adj.length, 1, 'attendu un adjust cadence');
+      assert.equal(adj[0].direction, 'decrease');
+      assert.equal(adj[0].magnitude, 'small', '"un peu" doit donner magnitude small');
+    },
+  },
+  {
+    name: 'hauteur : plus haut -> adjust trajectory increase',
+    turns: ['envoie les balles plus haut'],
+    expect([r]) {
+      const adj = adjustsFor(r, 'trajectory');
+      assert.equal(adj.length, 1, 'attendu un adjust trajectory');
+      assert.equal(adj[0].direction, 'increase');
+    },
+  },
+  {
+    name: 'hauteur : plus bas -> adjust trajectory decrease',
+    turns: ['la trajectoire un peu plus basse'],
+    expect([r]) {
+      const adj = adjustsFor(r, 'trajectory');
+      assert.equal(adj.length, 1, 'attendu un adjust trajectory');
+      assert.equal(adj[0].direction, 'decrease');
+    },
+  },
+  {
+    name: 'profondeur : moins loin -> adjust ball_speed decrease',
+    turns: ['envoie moins loin sur la table'],
+    expect([r]) {
+      const adj = adjustsFor(r, 'ball_speed');
+      assert.equal(adj.length, 1, 'attendu un adjust ball_speed (la distance = vitesse de balle)');
+      assert.equal(adj[0].direction, 'decrease');
+    },
+  },
+  {
+    name: 'puissance : frappe plus fort -> adjust ball_speed increase',
+    turns: ['frappe plus fort'],
+    expect([r]) {
+      const adj = adjustsFor(r, 'ball_speed');
+      assert.equal(adj.length, 1, 'attendu un adjust ball_speed');
+      assert.equal(adj[0].direction, 'increase');
+    },
+  },
+  {
+    name: 'effet : mets du lift/topspin -> adjust spin increase',
+    turns: ['mets un peu plus de lift dans la balle'],
+    expect([r]) {
+      const adj = adjustsFor(r, 'spin');
+      assert.equal(adj.length, 1, 'attendu un adjust spin');
+      assert.equal(adj[0].direction, 'increase');
+    },
+  },
+  {
+    name: 'effet : coupe la balle -> adjust spin decrease',
+    turns: ['coupe bien la balle en dessous'],
+    expect([r]) {
+      const adj = adjustsFor(r, 'spin');
+      assert.equal(adj.length, 1, 'attendu un adjust spin');
+      assert.equal(adj[0].direction, 'decrease');
+    },
+  },
+  {
+    name: 'session reelle : "plus haut et moins loin" -> trajectory increase + ball_speed decrease',
+    turns: ['vas-y démarre les balles mais envoie-les un peu plus haut et moins loin sur la table'],
+    expect([r]) {
+      const traj = adjustsFor(r, 'trajectory');
+      const speed = adjustsFor(r, 'ball_speed');
+      assert.equal(traj.length, 1, 'attendu un adjust trajectory');
+      assert.equal(traj[0].direction, 'increase', '"plus haut" -> increase');
+      assert.equal(speed.length, 1, 'attendu un adjust ball_speed');
+      assert.equal(speed[0].direction, 'decrease', '"moins loin" -> decrease');
+    },
+  },
+  {
+    name: 'ne pas confondre puissance et cadence : "envoie les balles plus fort" -> ball_speed (pas cadence)',
+    turns: ['envoie les balles plus fort'],
+    expect([r]) {
+      assert.equal(adjustsFor(r, 'ball_speed').length, 1, 'attendu ball_speed');
+      assert.equal(adjustsFor(r, 'cadence').length, 0, '"plus fort" ne doit PAS etre interprete comme cadence');
     },
   },
   {
@@ -95,7 +188,9 @@ export const CASES = [
     expect([r]) {
       const types = actionTypes(r);
       assert.ok(types.includes('shot'), 'attendu une action shot (recentrage)');
-      assert.ok(types.includes('decrease_speed'), 'attendu une action decrease_speed');
+      const cadence = adjustsFor(r, 'cadence');
+      assert.equal(cadence.length, 1, 'attendu un adjust cadence');
+      assert.equal(cadence[0].direction, 'decrease');
       assert.ok(types.includes('resume'), 'attendu une action resume');
       const shotAction = r.actions.find((a) => a.action === 'shot');
       assert.equal(shotAction.zone, 'center');

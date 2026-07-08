@@ -19,32 +19,70 @@ tu dois alors renvoyer PLUSIEURS actions dans l'ordre, pas en choisir une seule.
 
 Chaque action de la liste "actions" est un objet avec ces champs :
 - "action": un des types ci-dessous
+- "parameter": null | "cadence" | "ball_speed" | "trajectory" | "spin" | "side_spin" -- uniquement pour "adjust"
+- "direction": null | "increase" | "decrease" -- uniquement pour "adjust"
+- "magnitude": null | "small" | "normal" | "large" -- uniquement pour "adjust" (defaut "normal")
 - "shot_type": null | "forehand" (coup droit) | "backhand" (revers) -- uniquement pour "shot"
 - "zone": null | "left" | "right" | "center" -- uniquement pour "shot"
 - "positions": null | liste de {"shot_type":..., "zone":...} -- uniquement pour "pattern"
 
 Types d'action :
-- "increase_speed" / "decrease_speed" : changer la frequence des balles (balles par minute). Par defaut,
-  "plus vite" / "moins vite" SANS autre precision concerne la frequence, pas la vitesse de balle -- ne demande
-  PAS de clarification pour cette phrase simple, applique directement l'action.
+- "adjust" : regler UN parametre continu du robot par crans relatifs (jamais de valeur absolue). Choisis
+  "parameter" et "direction" ("increase" = plus, "decrease" = moins, le long de l'axe naturel du parametre),
+  et "magnitude" ("small" pour "un peu"/"legerement", "large" pour "beaucoup", sinon "normal") :
+  * "cadence" : le RYTHME (nombre de balles par minute). C'est le defaut de TOUT mot de tempo --
+    "plus vite"/"moins vite", "plus/moins rapide", "plus lent", "plus souvent", "plus de balles",
+    "change le rythme/la frequence" -- MEME suivi de "les balles" ("moins vite les balles" = cadence).
+    Applique-le directement, NE demande PAS de clarification. (La vitesse de la balle elle-meme se dit
+    autrement : voir ball_speed.)
+  * "ball_speed" : la PUISSANCE/force de frappe de la balle, ET sa PROFONDEUR -- sur ce robot c'est la
+    puissance qui determine a quelle distance la balle retombe (pas de reglage "profondeur" separe).
+    Reserve-le aux mots de FORCE ou de DISTANCE : "frappe plus fort", "plus puissant", "tape plus fort",
+    "plus loin"/"moins loin", "plus profond"/"trop court"/"trop long" -> "ball_speed". "moins loin"/
+    "trop long" = direction "decrease". (Un simple "plus vite" SANS notion de force = cadence, pas ca.)
+  * "trajectory" : la HAUTEUR / l'angle de l'arc. "plus haut"/"plus bas", "plus d'angle", "passe plus
+    haut au-dessus du filet", "trajectoire plus haute/basse" -> "trajectory". "plus haut" = "increase".
+  * "spin" : l'effet avant/arriere. "increase" = plus de TOPSPIN/lifte ; "decrease" = plus de COUPE/
+    backspin/chope. ("mets du lifte" -> increase ; "coupe la balle"/"backspin" -> decrease.)
+  * "side_spin" : l'effet LATERAL (rotation laterale de la balle), UNIQUEMENT si l'utilisateur parle
+    explicitement d'EFFET/de rotation sur le cote ("mets de l'effet a droite", "brosse la balle sur le
+    cote", "effet lateral", "fais-la tourner vers la gauche"). "increase" = vers la droite, "decrease"
+    = vers la gauche. ATTENTION : un simple mot de POSITION n'est PAS du side_spin. En particulier
+    "de cote", "sur le cote", "un peu plus de cote", "plus sur le cote", "decale un peu" designent un
+    PLACEMENT gauche/droite, PAS un effet : comme ils ne precisent pas gauche OU droite, ils sont
+    AMBIGUS -> renvoie "clarify" et demande "a gauche ou a droite ?". Ne choisis side_spin QUE si le mot
+    "effet", "rotation", "tourne", "brosse" (ou "sidespin") est present.
 - "stop" : arreter immediatement le lancer de balles.
 - "resume" : relancer l'exercice en cours (une seule balle/position, sans changer la config actuelle).
 - "shot" : envoyer des balles a un endroit precis. Pour "backhand", zone = "left"|"right"|"center" est
   obligatoire. Pour "forehand", zone reste null. Si l'utilisateur demande a la fois de repositionner ET
   de (re)lancer (ex: "active le lanceur et au milieu"), renvoie DEUX actions : un "shot" pour la position
   puis un "resume" pour relancer -- ne mets jamais zone/shot_type sur l'action "resume" elle-meme.
+  IMPORTANT : une reponse directionnelle breve -- "a gauche", "a droite", "au milieu", "plutot a gauche"
+  -- surtout en REPONSE a une question de placement que tu viens de poser, est un PLACEMENT : renvoie
+  "shot" (shot_type "backhand", zone correspondante), JAMAIS un side_spin (qui exige un mot d'effet).
 - "pattern" : l'utilisateur veut un exercice qui ALTERNE entre plusieurs positions en boucle (ex: "une
   balle a gauche, une a droite", "un exercice avec coup droit puis revers au centre"). Remplis
   "positions" avec la sequence de {"shot_type","zone"} demandee (2 a 10 positions), laisse "shot_type"/
   "zone" a null au niveau de l'action elle-meme.
-- "clarify" : si la demande est vraiment ambigue (ex: revers sans zone precisee, ou une phrase qui suggere
-  explicitement la vitesse de la balle plutot que la frequence, ou toute demande hors de ces actions),
-  renvoie une SEULE action "clarify" (rien d'autre dans la liste) et pose UNE question courte et precise
-  en francais dans "question" (au niveau racine, pas dans l'action). N'invente pas de choix par defaut ici.
+- "clarify" : si la demande est vraiment ambigue (ex: revers sans zone precisee, ou "change l'effet" sans
+  dire lequel, ou toute demande hors de ces actions), renvoie une SEULE action "clarify" (rien d'autre
+  dans la liste) et pose UNE question courte et precise en francais dans "question" (au niveau racine, pas
+  dans l'action). N'invente pas de choix par defaut ici. Mais NE clarifie PAS ce que tu peux mapper via
+  "adjust" (hauteur, vitesse/distance, effet) : produis directement l'action.
 - "none" : la phrase n'est pas une commande pour le robot (bruit, conversation hors-sujet) ; liste vide.
 
+Une phrase peut combiner plusieurs "adjust" (ex: "envoie plus haut et moins loin" -> un adjust
+trajectory/increase ET un adjust ball_speed/decrease). Renvoie-les tous, dans l'ordre.
+
+REGLE PRIORITAIRE (elle l'emporte sur tout le reste) : les mots "gauche", "droite", "milieu", "centre"
+designent une POSITION sur la table -> action "shot" (shot_type "backhand", zone left/right/center).
+Ils ne declenchent JAMAIS un side_spin. Le side_spin n'existe que si le mot "effet"/"rotation"/"tourne"/
+"brosse" est explicitement present. Donc une reponse comme "a gauche" (surtout apres ta question
+"a gauche ou a droite ?") = shot zone "left", jamais side_spin.
+
 Reponds TOUJOURS avec un unique objet JSON, sans balises markdown ni texte autour, exactement de cette forme :
-{"actions": [{"action": "increase_speed|decrease_speed|stop|resume|shot|pattern|clarify|none", "shot_type": null|"forehand"|"backhand", "zone": null|"left"|"right"|"center", "positions": null|[{"shot_type":...,"zone":...}]}], "question": null|"...", "say": "courte confirmation orale en francais pour l'ensemble, ou vide"}
+{"actions": [{"action": "adjust|stop|resume|shot|pattern|clarify|none", "parameter": null|"cadence"|"ball_speed"|"trajectory"|"spin"|"side_spin", "direction": null|"increase"|"decrease", "magnitude": null|"small"|"normal"|"large", "shot_type": null|"forehand"|"backhand", "zone": null|"left"|"right"|"center", "positions": null|[{"shot_type":...,"zone":...}]}], "question": null|"...", "say": "courte confirmation orale en francais pour l'ensemble, ou vide"}
 
 Ne fais AUCUN raisonnement ni brouillon avant de repondre : produis directement et immediatement le JSON final,
 sans etapes intermediaires. La reponse doit tenir en une seule ligne courte.`;
@@ -76,7 +114,7 @@ export class LlmInterpreter {
 
   /**
    * @param {string} transcript - texte transcrit par la reconnaissance vocale
-   * @returns {Promise<{actions: Array<{action:string, shot_type:?string, zone:?string, positions:?Array<{shot_type:?string,zone:?string}>}>, question:?string, say:string}>}
+   * @returns {Promise<{actions: Array<{action:string, parameter:?string, direction:?string, magnitude:?string, shot_type:?string, zone:?string, positions:?Array<{shot_type:?string,zone:?string}>}>, question:?string, say:string}>}
    *   `actions` peut contenir plusieurs entrees (phrase composee, ex: "remets au milieu et relance").
    *   Si une entree a action="clarify", c'est la SEULE entree de la liste et `question` est rempli.
    */
@@ -110,7 +148,9 @@ export class LlmInterpreter {
     try {
       res = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Api-Key': this.apiKey },
+        // X-Api-Key seulement s'il est defini : en prod le reverse-proxy l'exige, mais le harnais
+        // d'eval tape Ollama en direct (sans cle) et un header a `undefined` ferait planter fetch.
+        headers: { 'Content-Type': 'application/json', ...(this.apiKey ? { 'X-Api-Key': this.apiKey } : {}) },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
@@ -174,6 +214,9 @@ export class LlmInterpreter {
     return {
       actions: actions.map((a) => ({
         action: a.action ?? 'none',
+        parameter: a.parameter ?? null,
+        direction: a.direction ?? null,
+        magnitude: a.magnitude ?? null,
         shot_type: a.shot_type ?? null,
         zone: a.zone ?? null,
         positions: Array.isArray(a.positions)

@@ -4,6 +4,16 @@
   <meta charset="utf-8" />
   <title>Amicus - controle vocal</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    // Force le slash final. Servie sous /ping-pong-games/ (Tailscale Funnel), la page charge ses
+    // scripts en relatif (./app.js). Sans slash final, "./app.js" se resout a la RACINE du domaine
+    // (/app.js -> routee vers Home Assistant -> 404) : les modules ne chargent pas, aucun handler ne
+    // s'attache, les boutons restent inertes sans erreur visible. Funnel strippe le prefixe avant
+    // nginx, donc la redirection ne peut se faire qu'ici, cote client, avant le chargement des modules.
+    if (!location.pathname.endsWith('/')) {
+      location.replace(location.pathname + '/' + location.search + location.hash);
+    }
+  </script>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; background: #111; color: #eee; }
     h1 { font-size: 1.3rem; }

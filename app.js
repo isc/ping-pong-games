@@ -1,14 +1,38 @@
 import { AmicusRobot } from './robot.js';
 import { LlmInterpreter } from './llm.js';
 import { VoiceIO } from './voice.js';
-import { BALL_STATE, placeAppToWire, START_PLAY_MODE } from './protocol.js';
+import { BALL_STATE, START_PLAY_MODE, APP_RANGE, appBallToWire } from './protocol.js';
 
-// --- Reglages a ajuster ---
-const SPEED_STEP = 5; // balles/minute par cran de "plus vite" / "moins vite"
-const SPEED_MIN = 5;
-const SPEED_MAX = 60;
+// --- Cadence (balles/minute), pilotee par la commande globale SetBallPerMin (independante du
+//     descripteur de balle). C'est le parametre "cadence" de l'action adjust. ---
+const CADENCE_STEP = 5; // balles/minute par cran "normal"
+const CADENCE_MIN = 5;
+const CADENCE_MAX = 60;
 const DEFAULT_BALL_PER_MIN = 20;
-const SHOT_SLOT = 1; // slot SetBallProperties utilise pour les tirs a la voix (n'affecte pas les autres slots)
+const SHOT_SLOT = 1; // slot du descripteur utilise pour les tirs a la voix
+
+// Facteurs de "magnitude" appliques a tous les crans (adjust.magnitude). "un peu" -> plus petit,
+// "beaucoup" -> plus gros. Arrondi au cran entier le plus proche.
+const MAGNITUDE_FACTOR = { small: 0.5, normal: 1, large: 2 };
+
+// Crans par cran "normal", en UNITES APP (echelles humaines du manuel), pour les parametres du
+// descripteur de balle. On travaille en modele app puis on convertit via appBallToWire (formules
+// exactes de l'app officielle, cf. protocol.js) -- calibration certaine, plus empirique.
+//   ball_speed : speed 1..25 (defaut 13)      -> +loin
+//   trajectory : verticalAngle -92..+61 deg   -> +haut (et +loin, cf. calibration 2026-07-08)
+//   spin       : -5 (backspin) .. +7 (topspin) -> +topspin fait replonger la balle (plus court)
+//   side_spin  : -90..+90 deg, pas de 15       -> +droite
+const APP_STEP = {
+  ball_speed: 1, // cran de vitesse
+  trajectory: 10, // degres d'angle
+  spin: 1, // cran d'effet
+  side_spin: 15, // un cran = 15 deg
+};
+
+// Mapping parametre "adjust" -> champ du modele app (currentShot). "cadence" est traite a part
+// (commande globale SetBallPerMin, pas un champ de balle).
+const PARAM_TO_APP_FIELD = { ball_speed: 'speed', trajectory: 'verticalAngle', spin: 'spin', side_spin: 'sideSpin' };
+const APP_FIELD_RANGE = { speed: APP_RANGE.speed, verticalAngle: APP_RANGE.verticalAngle, spin: APP_RANGE.spin, sideSpin: APP_RANGE.sideSpin };
 
 // `place` cote app : -8 (revers/extreme gauche) .. 0 (milieu) .. +8 (coup droit/extreme droite),
 // cf. manuel utilisateur officiel. Formule vers l'octet fil CONFIRMEE par capture BLE reelle
@@ -24,10 +48,15 @@ const ZONES = {
   center: 0, // vrai centre neutre (confirme par le manuel), independant de forehand/backhand
 };
 
-// Valeurs fil REELLEMENT capturees le 2026-07-06 (cf. PROTOCOL.md) pendant le test de calibration
-// de `place` -- c'etaient les reglages de l'exercice de test sur l'app, donc verifiees, pas des
-// hypotheses (seul l'octet place variait entre les 3 echantillons captures).
-const DEFAULT_SHOT_PARAMS = { trajectoryLow: 92, trajectoryHigh: 0, spin: 5, sideSpin: 6, speed: 12, ballPerMinPreset: 6 };
+// Reglages de balle par defaut, en UNITES APP. C'est la config du vrai drill Butterfly (exercice 79)
+// VALIDEE sur le robot le 2026-07-08 : elle tombe au milieu de la table. Le topspin (spin=2) est
+// essentiel -- sans lui (spin=0) la balle file tout droit et sort. verticalAngle=0 = arc neutre.
+const DEFAULT_SHOT = { speed: 12, spin: 2, sideSpin: 0, verticalAngle: 0 };
+
+// Etat persistant du "tir courant" (unites app) : les reglages continus (vitesse/hauteur/effet) que les
+// commandes "adjust" modifient par crans, et que shot/pattern reutilisent comme base.
+let currentShot = { ...DEFAULT_SHOT };
+let currentPlaceApp = ZONES.center; // derniere position G/D demandee (-8..+8 cote app)
 
 const log = document.getElementById('log');
 const statusEl = document.getElementById('status');
@@ -39,6 +68,8 @@ function addLog(line) {
 function setStatus(text) {
   statusEl.textContent = text;
 }
+
+let lastLoggedMode = null; // dernier etat robot journalise, pour ne pas repeter les PLAYING du keep-alive
 
 const robot = new AmicusRobot({
   onEvent: (evt) => {
@@ -59,7 +90,12 @@ const robot = new AmicusRobot({
         releaseWakeLock();
       }
     }
-    if (evt.kind === 'frame' && evt.type === 'AmicusMode') addLog(`Etat robot: ${evt.name}`);
+    // Le keep-alive interroge l'etat toutes les 2,5s -> on ne logge QUE les changements, sinon le journal
+    // se noie sous des dizaines de "Etat robot: PLAYING" identiques (constate en session reelle).
+    if (evt.kind === 'frame' && evt.type === 'AmicusMode' && evt.name !== lastLoggedMode) {
+      lastLoggedMode = evt.name;
+      addLog(`Etat robot: ${evt.name}`);
+    }
   },
 });
 window.robot = robot; // pour tester des commandes a la main depuis la console (bypass LLM/voix)
@@ -163,11 +199,8 @@ async function handleTranscript(transcript) {
   try {
     for (const a of result.actions) {
       switch (a.action) {
-        case 'increase_speed':
-          await adjustSpeed(+SPEED_STEP);
-          break;
-        case 'decrease_speed':
-          await adjustSpeed(-SPEED_STEP);
+        case 'adjust':
+          await applyAdjust(a.parameter, a.direction, a.magnitude);
           break;
         case 'stop':
           await robot.stopPlay();
@@ -204,16 +237,57 @@ async function handleTranscript(transcript) {
   if (result.say) await voice.speak(result.say);
 }
 
-async function adjustSpeed(delta) {
+// Cran effectif = pas nominal x facteur de magnitude ("un peu"/"beaucoup"), arrondi et au moins 1.
+function scaledStep(nominal, magnitude) {
+  const factor = MAGNITUDE_FACTOR[magnitude] ?? MAGNITUDE_FACTOR.normal;
+  return Math.max(1, Math.round(nominal * factor));
+}
+
+// Aiguille une action "adjust" vers la cadence (commande globale) ou un champ du descripteur de balle.
+async function applyAdjust(parameter, direction, magnitude) {
+  const sign = direction === 'decrease' ? -1 : +1; // "increase" par defaut
+  if (parameter === 'cadence') {
+    await adjustCadence(sign * scaledStep(CADENCE_STEP, magnitude));
+    return;
+  }
+  const field = PARAM_TO_APP_FIELD[parameter];
+  if (!field) {
+    addLog(`⚠️ Parametre adjust inconnu: ${parameter}`);
+    return;
+  }
+  await adjustBallParam(parameter, field, sign * scaledStep(APP_STEP[parameter], magnitude));
+}
+
+async function adjustCadence(delta) {
   let current;
   try {
     current = await robot.getBallPerMin();
   } catch {
     current = robot.lastKnownBallPerMin ?? DEFAULT_BALL_PER_MIN;
   }
-  const next = Math.max(SPEED_MIN, Math.min(SPEED_MAX, current + delta));
+  const next = Math.max(CADENCE_MIN, Math.min(CADENCE_MAX, current + delta));
   await robot.setBallPerMin(next);
   addLog(`Cadence: ${current} → ${next} balles/min`);
+}
+
+// Modifie un champ continu du tir courant (vitesse/hauteur/effet) par un cran relatif EN UNITES APP,
+// clampe sur sa plage app, puis rejoue immediatement la balle pour un retour tangible.
+async function adjustBallParam(parameter, field, delta) {
+  const { min, max } = APP_FIELD_RANGE[field];
+  const before = currentShot[field];
+  const after = Math.max(min, Math.min(max, before + delta));
+  currentShot[field] = after;
+  addLog(`${parameter}: ${before} → ${after} (app ${min}..${max})`);
+  await applyCurrentShot();
+}
+
+// (Re)envoie le tir courant (position + reglages continus) et le teste sans toucher a l'exercice
+// enregistre. On convertit le modele app -> descripteur fil via appBallToWire (formules exactes de
+// l'app officielle). Partage par shot et par les adjust (retour immediat).
+async function applyCurrentShot() {
+  const wire = appBallToWire({ state: BALL_STATE.ENABLED, place: currentPlaceApp, ...currentShot });
+  await robot.setBallProperties(SHOT_SLOT, wire);
+  await robot.startSample();
 }
 
 // BUG corrige (2026-07-06, teste avec Charly) : l'ancienne version ignorait completement `zone`
@@ -234,13 +308,8 @@ async function sendShot(shotType, zone) {
   const zoneKey = resolveZoneKey(shotType, zone);
   const placeApp = ZONES[zoneKey];
   if (placeApp === undefined) throw new Error(`Zone inconnue: ${shotType}/${zone}`);
-  await robot.setBallProperties(SHOT_SLOT, {
-    state: BALL_STATE.ENABLED,
-    place: placeAppToWire(placeApp),
-    sector: placeAppToWire(placeApp), // pas de zone -> point unique (diff=0 dans l'encodage place/sector)
-    ...DEFAULT_SHOT_PARAMS,
-  });
-  await robot.startSample(); // teste cette balle sans lancer/modifier tout l'exercice enregistre
+  currentPlaceApp = placeApp; // memorise la position pour les adjust suivants (qui rejouent ce tir)
+  await applyCurrentShot(); // reutilise les reglages continus courants (vitesse/hauteur/effet)
 }
 
 // Exercice en alternance (ex. "une balle a gauche, une a droite" en boucle) : contrairement a
@@ -261,12 +330,8 @@ async function sendPattern(positions) {
     const zoneKey = resolveZoneKey(shot_type, zone);
     const placeApp = ZONES[zoneKey];
     if (placeApp === undefined) throw new Error(`Zone inconnue: ${shot_type}/${zone}`);
-    return {
-      state: BALL_STATE.ENABLED,
-      place: placeAppToWire(placeApp),
-      sector: placeAppToWire(placeApp),
-      ...DEFAULT_SHOT_PARAMS,
-    };
+    // memes reglages continus (vitesse/hauteur/effet) que le tir courant, convertis app -> fil
+    return appBallToWire({ state: BALL_STATE.ENABLED, place: placeApp, ...currentShot });
   });
   await robot.setAllBalls(balls);
   await robot.startPlay(START_PLAY_MODE.NORMAL);

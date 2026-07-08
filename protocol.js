@@ -37,6 +37,18 @@ export const AMICUS_MODE = {
 export const START_PLAY_MODE = { NORMAL: 0, CYCLE: 1, WAIT: 2 };
 export const BALL_STATE = { DISABLED: 0, ENABLED: 1, SERVE: 2, UNCHANGED: 255 };
 
+// Plages "fil" (octets du descripteur de balle, cf. PROTOCOL.md § SetAllBalls). Exportees pour que
+// app.js puisse clamper les reglages continus (vitesse/hauteur/effet) qu'il ajuste par crans relatifs
+// sans reimporter la logique d'encodage. `neutral` = valeur fil sans effet, telle qu'observee dans les
+// captures reelles (spin=5, sideSpin=6 correspondent au "0" de l'echelle app -5..+7 / -6..+6 du manuel).
+export const WIRE_RANGE = {
+  trajectoryLow: { min: 0, max: 175 },
+  trajectoryHigh: { min: 0, max: 255 },
+  spin: { min: 0, max: 12, neutral: 5 },
+  sideSpin: { min: 0, max: 12, neutral: 6 },
+  speed: { min: 0, max: 24 },
+};
+
 /** Construit une trame [0x2a][len][0x00][cmdId][payload...] (len = 4 + payload.length, auto-inclusif). */
 export function buildFrame(cmdId, payload = []) {
   const len = 4 + payload.length;
@@ -71,11 +83,51 @@ export function placeAppToWire(placeApp) {
   return Math.max(0, Math.min(16, Math.round(placeApp) + 8));
 }
 
+// Plages du MODELE APP (echelles humaines du manuel/app officielle), pour clamper les reglages avant
+// conversion. sideSpin est en pas discrets de 15 degres.
+export const APP_RANGE = {
+  place: { min: -8, max: 8 }, // gauche .. droite
+  speed: { min: 1, max: 25 }, // vitesse de balle (defaut 13)
+  spin: { min: -5, max: 7 }, // backspin .. topspin (0 = neutre)
+  sideSpin: { min: -90, max: 90, step: 15 }, // effet lateral en degres
+  verticalAngle: { min: -92, max: 61 }, // angle/hauteur de lancer (0 = neutre)
+};
+
 /**
- * Encode le descripteur d'une balle (8 octets). Valeurs par defaut = 0 (slot inactif si state=DISABLED,
- * pour matcher les slots de remplissage observes dans les captures reelles).
- * NB: place/sector, trajectoryLow/High, spin/sideSpin/speed, ballPerMin-preset ne sont pas encore calibres
- * empiriquement (cf. PROTOCOL.md, section "reste a valider") -- a ajuster une fois testes sur le vrai robot.
+ * Convertit une balle du MODELE APP (echelles humaines) vers le descripteur fil, avec EXACTEMENT les
+ * formules de l'app officielle (decompile S1/s.java `e(Ball)`, 2026-07-08) -- calibration certaine, pas
+ * empirique. Retourne un objet pret pour encodeBall (place/sector deja en valeur fil 0..16).
+ *   place_fil    = place_app + 8            (-8..+8   -> 0..16)
+ *   speed_fil    = speed_app - 1            (1..25    -> 0..24, defaut 13 -> 12)
+ *   spin_fil     = spin_app + 5             (-5..+7   -> 0..12, neutre 0 -> 5)
+ *   sideSpin_fil = round((sideSpin_app+90)/15)   (-90..+90 -> 0..12, neutre 0 -> 6)
+ *   trajLow_fil  = verticalAngle_app + 92   (-92..+61 -> 0..175, neutre 0 -> 92) ; trajectoryHigh = 0
+ */
+export function appBallToWire({
+  state = BALL_STATE.ENABLED,
+  place = 0,
+  speed = 13,
+  spin = 0,
+  sideSpin = 0,
+  verticalAngle = 0,
+} = {}) {
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
+  const placeWire = clamp(place + 8, 0, 16);
+  return {
+    state,
+    place: placeWire,
+    sector: placeWire, // point unique (diff=0 dans l'encodage place/sector)
+    speed: clamp(speed - 1, 0, 24),
+    spin: clamp(spin + 5, 0, 12),
+    sideSpin: clamp((sideSpin + 90) / 15, 0, 12),
+    trajectoryLow: clamp(verticalAngle + 92, 0, 175),
+    trajectoryHigh: 0, // toujours 0 (code en dur dans l'app officielle)
+  };
+}
+
+/**
+ * Encode le descripteur d'une balle (8 octets) a partir de valeurs FIL. Conversion depuis le modele app
+ * (echelles humaines) : passer par appBallToWire d'abord.
  */
 export function encodeBall({
   state = BALL_STATE.DISABLED,
