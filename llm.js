@@ -54,19 +54,25 @@ Types d'action :
     "effet", "rotation", "tourne", "brosse" (ou "sidespin") est present.
 - "stop" : arreter immediatement le lancer de balles.
 - "resume" : relancer l'exercice en cours (une seule balle/position, sans changer la config actuelle).
-- "shot" : envoyer des balles a un endroit precis. Pour "backhand", zone = "left"|"right"|"center" est
-  obligatoire. Pour "forehand", zone reste null. Si l'utilisateur demande a la fois de repositionner ET
-  de (re)lancer (ex: "active le lanceur et au milieu"), renvoie DEUX actions : un "shot" pour la position
-  puis un "resume" pour relancer -- ne mets jamais zone/shot_type sur l'action "resume" elle-meme.
+- "shot" : envoyer des balles a un endroit precis. "coup droit"=forehand, "revers"=backhand : ce sont
+  les deux COTES opposes de la table, ils se suffisent a eux-memes. La "zone" (left/right/center) est
+  OPTIONNELLE et ne sert QUE si l'utilisateur precise explicitement OU (ex: "un revers a gauche",
+  "coup droit au milieu") -- sinon laisse zone=null. N'INVENTE JAMAIS "center" (ni une autre zone) pour
+  un "revers"/"coup droit" simple : "revers" seul = {shot_type:"backhand", zone:null}, "coup droit" seul
+  = {shot_type:"forehand", zone:null}. Si l'utilisateur demande a la fois de repositionner ET de (re)lancer
+  (ex: "active le lanceur et au milieu"), renvoie DEUX actions : un "shot" pour la position puis un
+  "resume" pour relancer -- ne mets jamais zone/shot_type sur l'action "resume" elle-meme.
   IMPORTANT : une reponse directionnelle breve -- "a gauche", "a droite", "au milieu", "plutot a gauche"
   -- surtout en REPONSE a une question de placement que tu viens de poser, est un PLACEMENT : renvoie
   "shot" (shot_type "backhand", zone correspondante), JAMAIS un side_spin (qui exige un mot d'effet).
 - "pattern" : l'utilisateur veut un exercice qui ALTERNE entre plusieurs positions en boucle (ex: "une
-  balle a gauche, une a droite", "un exercice avec coup droit puis revers au centre"). Remplis
-  "positions" avec la sequence de {"shot_type","zone"} demandee (2 a 10 positions), laisse "shot_type"/
-  "zone" a null au niveau de l'action elle-meme.
-- "clarify" : si la demande est vraiment ambigue (ex: revers sans zone precisee, ou "change l'effet" sans
-  dire lequel, ou toute demande hors de ces actions), renvoie une SEULE action "clarify" (rien d'autre
+  balle a gauche, une a droite", "alternance coup droit / revers"). Remplis "positions" avec la sequence
+  de {"shot_type","zone"} demandee (2 a 10 positions) -- pour "alternance coup droit et revers" c'est
+  [{"shot_type":"forehand","zone":null},{"shot_type":"backhand","zone":null}], SANS inventer de zone.
+  Laisse "shot_type"/"zone" a null au niveau de l'action elle-meme.
+- "clarify" : si la demande est vraiment ambigue (ex: "change l'effet" sans dire lequel, une position
+  "de cote" sans gauche/droite, ou toute demande hors de ces actions), renvoie une SEULE action "clarify"
+  (rien d'autre
   dans la liste) et pose UNE question courte et precise en francais dans "question" (au niveau racine, pas
   dans l'action). N'invente pas de choix par defaut ici. Mais NE clarifie PAS ce que tu peux mapper via
   "adjust" (hauteur, vitesse/distance, effet) : produis directement l'action.
@@ -94,6 +100,12 @@ sans etapes intermediaires. La reponse doit tenir en une seule ligne courte.`;
 // captee par erreur plutot que de la trainer indefiniment.
 const MAX_HISTORY_MESSAGES = 8; // ~4 echanges (user+assistant)
 
+// Ollama decharge le modele de la VRAM apres ~5 min d'inactivite (OLLAMA_KEEP_ALIVE par defaut) -> le
+// 1er appel d'une session doit le recharger a froid (plusieurs secondes, parfois "Failed to fetch").
+// On envoie keep_alive sur chaque requete pour qu'il reste resident toute la session, et on precharge
+// le modele a l'ouverture de l'ecoute (cf. warmup()).
+const KEEP_ALIVE = '30m';
+
 export class LlmInterpreter {
   /**
    * @param {object} opts
@@ -113,6 +125,26 @@ export class LlmInterpreter {
   }
 
   /**
+   * Precharge le modele en VRAM cote Ollama (messages vides = "load only", cf. API Ollama) pour eviter
+   * le rechargement a froid du 1er vrai appel. Non bloquant : a appeler des l'ouverture de l'ecoute,
+   * le modele est pret le temps que l'utilisateur se mette en place.
+   */
+  async warmup() {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(this.apiKey ? { 'X-Api-Key': this.apiKey } : {}) },
+        body: JSON.stringify({ model: this.model, messages: [], stream: false, keep_alive: KEEP_ALIVE }),
+      });
+      console.log('[LLM] warmup status', res.status);
+      return res.ok;
+    } catch (err) {
+      console.log('[LLM] warmup echoue (non bloquant):', err);
+      return false;
+    }
+  }
+
+  /**
    * @param {string} transcript - texte transcrit par la reconnaissance vocale
    * @returns {Promise<{actions: Array<{action:string, parameter:?string, direction:?string, magnitude:?string, shot_type:?string, zone:?string, positions:?Array<{shot_type:?string,zone:?string}>}>, question:?string, say:string}>}
    *   `actions` peut contenir plusieurs entrees (phrase composee, ex: "remets au milieu et relance").
@@ -127,6 +159,7 @@ export class LlmInterpreter {
       stream: false, // l'API native Ollama streame par defaut ; on veut une reponse JSON unique
       format: 'json', // equivalent natif de response_format:{type:'json_object'} cote OpenAI-compatible
       think: false, // ici transmis correctement (contrairement a /v1/chat/completions, cf. note plus haut)
+      keep_alive: KEEP_ALIVE, // garde le modele en VRAM toute la session (pas de rechargement a froid)
       options: {
         temperature: 0.1,
         // Plafond dur : sans ca, on a vu le modele partir dans 3600+ tokens de "reflexion" invisible

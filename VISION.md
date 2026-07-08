@@ -54,3 +54,11 @@ Le lanceur envoie des balles aux enfants qui doivent les renvoyer avec une raque
 - ⬜ **State machine de score** (1 pt / 3 pts) : pas commencée.
 - ⬜ **UI overlay + annonce vocale du score** : la synthèse vocale existe déjà côté pilotage vocal
   (`voice.js`), réutilisable ici.
+
+## Roadmap / idées
+
+- **Profils joueur (gaucher / droitier)** : « coup droit » et « revers » sont mappés en dur pour un
+  droitier (coup droit = côté droit de la table). Pour un gaucher c'est inversé — constaté en session
+  réelle (2026-07-08 : un gaucher demandant des coups droits recevait des balles côté revers). À terme :
+  un profil par joueur (main dominante), idéalement reconnu automatiquement par **identification vocale**
+  (qui parle → quel profil) pour basculer le mapping sans réglage manuel.

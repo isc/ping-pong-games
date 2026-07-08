@@ -174,6 +174,21 @@ export const CASES = [
     },
   },
   {
+    name: 'alternance coup droit / revers -> pattern forehand+backhand SANS zone inventee',
+    turns: ['tu peux me faire une alternance de coup droit et de revers'],
+    expect([r]) {
+      assert.deepEqual(actionTypes(r), ['pattern']);
+      const positions = r.actions[0].positions;
+      assert.ok(Array.isArray(positions) && positions.length === 2, 'attendu 2 positions');
+      const types = positions.map((p) => p.shot_type);
+      assert.ok(types.includes('forehand') && types.includes('backhand'), 'attendu coup droit + revers');
+      // Le bug observe (2026-07-08) : le revers recevait zone="center" -> partait au centre. Un revers
+      // simple ne doit PAS avoir de zone inventee.
+      const backhand = positions.find((p) => p.shot_type === 'backhand');
+      assert.equal(backhand.zone, null, 'le revers simple ne doit pas avoir de zone (pas "center")');
+    },
+  },
+  {
     name: 'une de chaque cote (gauche puis droite) -> pattern',
     turns: ['une de chaque côté à gauche puis à droite'],
     expect([r]) {

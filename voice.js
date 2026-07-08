@@ -1,6 +1,10 @@
 // Reconnaissance vocale continue (Web Speech API) + synthese pour le retour oral.
 // Necessite Chrome/Edge (webkitSpeechRecognition) sur un contexte securise (https ou localhost).
 
+// Delai apres la fin de la synthese vocale avant de reactiver le micro : laisse le haut-parleur se taire
+// pour ne pas capter la queue de notre propre voix (anti boucle larsen, cf. session reelle 2026-07-08).
+const SPEECH_COOLDOWN_MS = 600;
+
 /** La liste des voix se charge de facon asynchrone (evenement 'voiceschanged') la premiere fois. */
 function loadVoices() {
   return new Promise((resolve) => {
@@ -44,8 +48,10 @@ export class VoiceIO {
         console.log('[STT] segment', i, 'isFinal=', result.isFinal, 'transcript=', result[0].transcript);
         if (result.isFinal) {
           const transcript = result[0].transcript.trim();
-          if (transcript && !this._speaking) this._onTranscript(transcript);
-          else if (this._speaking) console.log('[STT] transcript ignore (app en train de parler):', transcript);
+          // On ignore tout tant qu'on parle OU pendant le cooldown post-synthese (_pausedForSpeech),
+          // pour ne pas capter la queue d'echo de notre propre voix (boucle larsen).
+          if (transcript && !this._speaking && !this._pausedForSpeech) this._onTranscript(transcript);
+          else if (this._speaking || this._pausedForSpeech) console.log('[STT] transcript ignore (app parle/cooldown):', transcript);
         }
       }
     };
@@ -108,14 +114,19 @@ export class VoiceIO {
 
       const resume = () => {
         this._speaking = false;
-        this._pausedForSpeech = false;
-        if (this._shouldBeListening) {
-          try {
-            this.recognition.start();
-          } catch (err) {
-            console.log('[STT] echec de la relance apres synthese vocale:', err);
+        // Cooldown avant de re-ecouter : le haut-parleur met un instant a se taire et le micro peut
+        // encore capter la fin de notre phrase. On garde _pausedForSpeech le temps du cooldown (la
+        // reconnaissance reste coupee) pour ne pas reprendre notre propre voix (boucle larsen reelle).
+        setTimeout(() => {
+          this._pausedForSpeech = false;
+          if (this._shouldBeListening) {
+            try {
+              this.recognition.start();
+            } catch (err) {
+              console.log('[STT] echec de la relance apres synthese vocale:', err);
+            }
           }
-        }
+        }, SPEECH_COOLDOWN_MS);
         resolve();
       };
       utterance.onend = resume;

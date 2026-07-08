@@ -7,8 +7,9 @@ import { BALL_STATE, START_PLAY_MODE, APP_RANGE, appBallToWire } from './protoco
 //     descripteur de balle). C'est le parametre "cadence" de l'action adjust. ---
 const CADENCE_STEP = 5; // balles/minute par cran "normal"
 const CADENCE_MIN = 5;
-const CADENCE_MAX = 60;
-const DEFAULT_BALL_PER_MIN = 20;
+// Max = 120 balles/min, confirme par l'utilisateur sur l'app officielle (le defaut usine est 40).
+const CADENCE_MAX = 120;
+const DEFAULT_BALL_PER_MIN = 30; // cadence posee au 1er lancer d'une session (avant, on heritait d'une valeur residuelle)
 
 // Facteurs de "magnitude" appliques a tous les crans (adjust.magnitude). "un peu" -> plus petit,
 // "beaucoup" -> plus gros. Arrondi au cran entier le plus proche.
@@ -62,6 +63,10 @@ let currentProgram = [ZONES.center];
 // `playing` : le robot alimente-t-il un flux en ce moment ? Sert a decider si un "adjust" doit
 // re-appliquer le programme au vol (echange en cours) ou juste memoriser le reglage (a plat).
 let playing = false;
+// La cadence a-t-elle ete fixee dans cette session ? Sinon on ne connait pas la valeur du robot (residu
+// d'une session/calibration precedente) -> on pose DEFAULT_BALL_PER_MIN au 1er lancer. Ensuite elle
+// persiste et suit les "plus vite"/"moins vite".
+let cadenceInitialized = false;
 
 const log = document.getElementById('log');
 const statusEl = document.getElementById('status');
@@ -88,6 +93,7 @@ const robot = new AmicusRobot({
       listenButton.disabled = true;
       listenButton.title = "Connecte d'abord le robot";
       playing = false;
+      cadenceInitialized = false; // nouvelle connexion = nouvelle session, on reposera la cadence par defaut
       if (listening) {
         voice.stop();
         listening = false;
@@ -170,6 +176,10 @@ listenButton.addEventListener('click', () => {
     const apiKey = apiKeyInput.value.trim();
     localStorage.setItem('llm-api-key', apiKey);
     llm = new LlmInterpreter({ baseUrl, model, apiKey });
+    // Precharge le modele tout de suite (Ollama l'a decharge apres ~5 min d'inactivite) pour que la
+    // 1ere commande ne parte pas a froid (bug "Failed to fetch" en debut de session). Non bloquant.
+    addLog('⏳ prechauffage du modele LLM...');
+    llm.warmup().then((ok) => addLog(ok ? '✅ modele LLM pret' : '⚠️ prechauffage LLM incertain'));
     voice = new VoiceIO({
       onTranscript: handleTranscript,
       onError: (err) => addLog(`Erreur reconnaissance vocale: ${err}`),
@@ -188,7 +198,26 @@ listenButton.addEventListener('click', () => {
   }
 });
 
+// Un seul transcript traite a la fois : tant qu'on interprete OU qu'on parle, on IGNORE les nouveaux
+// transcripts. Casse la boucle larsen (en session reelle l'app entendait sa propre voix "C'est note,
+// j'accelere le rythme" et la reprenait comme commande -> cadence qui s'emballe 25->50) ET le flot de
+// fragments successifs ("plus", "plus vite", "plus vite les"...) qui saturait notre rate-limit (503).
+let handling = false;
+
 async function handleTranscript(transcript) {
+  if (handling) {
+    addLog(`⏳ ignore (occupe) : "${transcript}"`);
+    return;
+  }
+  handling = true;
+  try {
+    await handleTranscriptInner(transcript);
+  } finally {
+    handling = false;
+  }
+}
+
+async function handleTranscriptInner(transcript) {
   addLog(`🗣️ "${transcript}"`);
   setStatus('🤔 Interpretation...');
   let result;
@@ -275,6 +304,7 @@ async function adjustCadence(delta) {
   }
   const next = Math.max(CADENCE_MIN, Math.min(CADENCE_MAX, current + delta));
   await robot.setBallPerMin(next);
+  cadenceInitialized = true; // l'utilisateur a fixe la cadence : le prochain lancer ne l'ecrase pas
   addLog(`Cadence: ${current} → ${next} balles/min`);
 }
 
@@ -300,6 +330,13 @@ function programBalls() {
 // fantomes) et lance le flux continu. Le robot boucle nativement tant que le keep-alive tourne (demarre
 // par startPlay, cf. robot.js). Remplace l'ancien StartSample (qui envoyait ~4 balles non maitrisees).
 async function playCurrentProgram() {
+  // Au tout premier lancer d'une session, on impose une cadence connue (sinon on jouerait a la valeur
+  // residuelle du robot -- observe : demarrage a 20 herite d'un tir de calibration).
+  if (!cadenceInitialized) {
+    await robot.setBallPerMin(DEFAULT_BALL_PER_MIN);
+    cadenceInitialized = true;
+    addLog(`Cadence initiale: ${DEFAULT_BALL_PER_MIN} balles/min`);
+  }
   await robot.setAllBalls(programBalls());
   await robot.startPlay(START_PLAY_MODE.NORMAL);
   playing = true;
@@ -338,13 +375,14 @@ async function sendShot(shotType, zone) {
 // nativement entre les positions actives tant que le keep-alive tourne (confirme par capture reelle
 // 2026-07-06). On charge le programme comme liste de positions, puis playCurrentProgram s'occupe du
 // setAllBalls + startPlay (avec les reglages continus courants).
-const PATTERN_MIN_POSITIONS = 2;
 const PATTERN_MAX_POSITIONS = 10; // SetAllBalls n'a que 10 emplacements (cf. PROTOCOL.md)
 
 async function sendPattern(positions) {
-  if (!Array.isArray(positions) || positions.length < PATTERN_MIN_POSITIONS) {
-    throw new Error(`Pattern: au moins ${PATTERN_MIN_POSITIONS} positions requises`);
+  if (!Array.isArray(positions) || positions.length === 0) {
+    throw new Error('Pattern: aucune position fournie');
   }
+  // 1 seule position = flux continu a cet endroit (ex. "que des coups droits") -- le LLM produit parfois
+  // un "pattern" a une entree la ou un "shot" conviendrait ; on l'accepte au lieu de planter.
   if (positions.length > PATTERN_MAX_POSITIONS) {
     throw new Error(`Pattern: ${PATTERN_MAX_POSITIONS} positions maximum`);
   }
