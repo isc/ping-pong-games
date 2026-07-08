@@ -236,6 +236,13 @@ export const CASES = [
     },
   },
   {
+    name: 'demande de reglages ("combien de balles par minute") -> report',
+    turns: ['on est a combien de balles par minute la'],
+    expect([r]) {
+      assert.deepEqual(actionTypes(r), ['report']);
+    },
+  },
+  {
     name: 'bruit de fond hors-sujet -> none (pas de crash, pas de fausse commande)',
     turns: ['mais papa ça fait gentil mais ça'],
     expect([r]) {

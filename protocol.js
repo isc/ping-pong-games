@@ -110,6 +110,7 @@ export function appBallToWire({
   spin = 0,
   sideSpin = 0,
   verticalAngle = 0,
+  ballPerMin = 0, // IFC (Individual Frequency Control) : delta de timing PAR balle, -60..+60, neutre 0
 } = {}) {
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
   const placeWire = clamp(place + 8, 0, 16);
@@ -122,6 +123,9 @@ export function appBallToWire({
     sideSpin: clamp((sideSpin + 90) / 15, 0, 12),
     trajectoryLow: clamp(verticalAngle + 92, 0, 175),
     trajectoryHigh: 0, // toujours 0 (code en dur dans l'app officielle)
+    // IFC : round((app+60)/10), neutre app 0 -> 6. NE PAS omettre : sans lui encodeBall defaultait a 0
+    // = app -60 = ralentissement MAX entre balles (bug 2026-07-08 : ~4s au lieu de ~2s a 30/min).
+    ballPerMinPreset: clamp((ballPerMin + 60) / 10, 0, 12),
   };
 }
 

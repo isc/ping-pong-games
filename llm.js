@@ -76,6 +76,11 @@ Types d'action :
   dans la liste) et pose UNE question courte et precise en francais dans "question" (au niveau racine, pas
   dans l'action). N'invente pas de choix par defaut ici. Mais NE clarifie PAS ce que tu peux mapper via
   "adjust" (hauteur, vitesse/distance, effet) : produis directement l'action.
+- "report" : l'utilisateur DEMANDE les reglages actuels (il ne veut rien changer), ex: "on est a
+  combien de balles par minute ?", "c'est quoi la vitesse la ?", "quels sont les reglages ?", "on en
+  est ou ?". Renvoie une action "report" ; "parameter" cible un reglage precis (cadence|ball_speed|
+  spin|side_spin|trajectory) ou reste null pour un resume general. Laisse "say" VIDE : l'app remplira
+  la reponse chiffree elle-meme (toi tu ne connais pas les valeurs courantes).
 - "none" : la phrase n'est pas une commande pour le robot (bruit, conversation hors-sujet) ; liste vide.
 
 Une phrase peut combiner plusieurs "adjust" (ex: "envoie plus haut et moins loin" -> un adjust
@@ -88,7 +93,7 @@ Ils ne declenchent JAMAIS un side_spin. Le side_spin n'existe que si le mot "eff
 "a gauche ou a droite ?") = shot zone "left", jamais side_spin.
 
 Reponds TOUJOURS avec un unique objet JSON, sans balises markdown ni texte autour, exactement de cette forme :
-{"actions": [{"action": "adjust|stop|resume|shot|pattern|clarify|none", "parameter": null|"cadence"|"ball_speed"|"trajectory"|"spin"|"side_spin", "direction": null|"increase"|"decrease", "magnitude": null|"small"|"normal"|"large", "shot_type": null|"forehand"|"backhand", "zone": null|"left"|"right"|"center", "positions": null|[{"shot_type":...,"zone":...}]}], "question": null|"...", "say": "courte confirmation orale en francais pour l'ensemble, ou vide"}
+{"actions": [{"action": "adjust|stop|resume|shot|pattern|report|clarify|none", "parameter": null|"cadence"|"ball_speed"|"trajectory"|"spin"|"side_spin", "direction": null|"increase"|"decrease", "magnitude": null|"small"|"normal"|"large", "shot_type": null|"forehand"|"backhand", "zone": null|"left"|"right"|"center", "positions": null|[{"shot_type":...,"zone":...}]}], "question": null|"...", "say": "courte confirmation orale en francais pour l'ensemble, ou vide"}
 
 Ne fais AUCUN raisonnement ni brouillon avant de repondre : produis directement et immediatement le JSON final,
 sans etapes intermediaires. La reponse doit tenir en une seule ligne courte.`;

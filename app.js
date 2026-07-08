@@ -256,6 +256,10 @@ async function handleTranscriptInner(transcript) {
         case 'pattern':
           await sendPattern(a.positions);
           break;
+        case 'report':
+          await reportSettings(a.parameter);
+          return; // la reponse orale EST le report ; pas de "say" en plus
+
         case 'clarify':
           await voice.speak(result.question);
           return; // pas de "say" supplementaire, la question EST la reponse orale ; clarify est
@@ -347,6 +351,38 @@ async function playCurrentProgram() {
 // lancer. La cadence, elle, est deja live via SetBallPerMin.
 async function reapplyIfPlaying() {
   if (playing) await playCurrentProgram();
+}
+
+// Decrit l'effet (spin app -5..+7) en langage naturel.
+function describeSpin(spin) {
+  if (spin > 0) return `topspin ${spin}`;
+  if (spin < 0) return `balle coupee ${-spin}`;
+  return 'sans effet';
+}
+
+// Repond a la voix a une demande de reglages courants ("on est a combien ?"). L'app connait les valeurs
+// (cadence cote robot, reste dans currentShot en unites app) -- le LLM, lui, ne les a pas.
+async function reportSettings(parameter) {
+  let cadence;
+  try {
+    cadence = await robot.getBallPerMin();
+  } catch {
+    cadence = robot.lastKnownBallPerMin ?? DEFAULT_BALL_PER_MIN;
+  }
+  const s = currentShot;
+  const parts = {
+    cadence: `${cadence} balles par minute`,
+    ball_speed: `vitesse ${s.speed} sur 25`,
+    spin: describeSpin(s.spin),
+    side_spin: s.sideSpin === 0 ? 'pas d\'effet lateral' : `effet lateral ${s.sideSpin} degres`,
+    trajectory: `angle de trajectoire ${s.verticalAngle} degres`,
+  };
+  const text =
+    parameter && parts[parameter]
+      ? parts[parameter]
+      : `Cadence ${cadence} balles par minute, vitesse ${s.speed} sur 25, ${describeSpin(s.spin)}.`;
+  addLog(`ℹ️ ${text}`);
+  await voice.speak(text);
 }
 
 // BUG corrige (2026-07-06, teste avec Charly) : l'ancienne version ignorait completement `zone`
