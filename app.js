@@ -74,10 +74,51 @@ function addLog(line) {
   const el = document.createElement('div');
   el.textContent = line;
   log.prepend(el);
+  bufferRemoteLog(line); // miroir vers le serveur (analyse a distance, cf. flushLogs)
 }
 function setStatus(text) {
   statusEl.textContent = text;
 }
+
+// --- Journal distant -------------------------------------------------------------------------------
+// Envoie le journal de session au serveur (Charras) pour pouvoir l'analyser sans avoir a copier-coller
+// l'ecran du telephone. Bufferise puis flush toutes les quelques secondes + a la fermeture de la page
+// (fetch keepalive survit a l'unload). Cote serveur : nginx ecrit le corps brut dans /logs/client.log.
+const SESSION_ID = new Date().toISOString().replace(/[:.]/g, '-');
+const remoteLogBuffer = [];
+let remoteLogHeaderSent = false;
+
+function bufferRemoteLog(line) {
+  const ts = new Date().toISOString().slice(11, 23); // hh:mm:ss.mmm
+  remoteLogBuffer.push(`${ts} ${line}`);
+}
+
+async function flushLogs(useKeepalive = false) {
+  if (!remoteLogBuffer.length) return;
+  const batch = remoteLogBuffer.splice(0, remoteLogBuffer.length);
+  // En-tete de session une seule fois, pour delimiter les sessions dans le fichier serveur.
+  const header = remoteLogHeaderSent ? '' : `\n===== session ${SESSION_ID} (${navigator.userAgent}) =====\n`;
+  const body = header + batch.join('\n') + '\n';
+  const apiKey = document.getElementById('llm-api-key')?.value.trim() || '';
+  try {
+    await fetch('log', {
+      method: 'POST',
+      keepalive: useKeepalive,
+      headers: { 'Content-Type': 'text/plain', ...(apiKey ? { 'X-Api-Key': apiKey } : {}) },
+      body,
+    });
+    remoteLogHeaderSent = true;
+  } catch {
+    // Echec (reseau/serveur down) : on remet le batch en tete pour reessayer au prochain flush.
+    remoteLogBuffer.unshift(...batch);
+  }
+}
+
+setInterval(() => flushLogs(false), 5000);
+window.addEventListener('pagehide', () => flushLogs(true));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') flushLogs(true);
+});
 
 let lastLoggedMode = null; // dernier etat robot journalise, pour ne pas repeter les PLAYING du keep-alive
 
