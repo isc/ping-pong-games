@@ -88,9 +88,14 @@ Le lanceur envoie des balles aux enfants qui doivent les renvoyer avec une raque
 - **Arrêt/pause automatique (présence joueur + état du lanceur)** : fonctionnalités simples mais utiles.
   - **Joueur absent** (via CV) : détecter que le joueur **pose sa raquette** ou **quitte la table**
     → arrêter le robot automatiquement (plus de balles envoyées dans le vide, sécurité).
-  - **Plus de balles alimentées** : mettre le robot en pause le temps que le joueur débloque la réserve
-    ou ramasse les balles au sol. **En partie détectable sans caméra** : le robot expose déjà les états
-    `BALL_JAMMED_*` / `BALL_PERMANENTLY_JAMMED` (`AmicusMode`, cf. [`PROTOCOL.md`](PROTOCOL.md)) et arrête
-    d'émettre des notifications `PlayingBall` quand plus rien ne part → on peut pauser + prévenir
-    ("recharge les balles") sans CV. La CV confirmerait (réserve vide, balles au sol) et relancerait
-    automatiquement une fois la réserve rechargée.
+  - **Bourrage** : détectable **sans caméra** via BLE — le robot expose les états `BALL_JAMMED_FIRST/
+    REVERSE/FORWARD` et `BALL_PERMANENTLY_JAMMED` (`AmicusMode`, cf. [`PROTOCOL.md`](PROTOCOL.md)) : un
+    blocage fait caler le moteur, ce que le robot sait détecter. → pause auto + annonce vocale, faisable
+    dès maintenant.
+  - **Réservoir vide** : **PAS détectable en BLE** (vérifié dans le décompilé 2026-07-10). Le robot n'a
+    aucun état « vide » et aucun capteur de présence de balle à l'éjection : réservoir vide, le mécanisme
+    tourne à vide (roue + déclenchement + bruit) et le robot **croit tirer** (il continue d'émettre des
+    `PlayingBall`, qui sont des cycles *programmés* et non la lecture d'une balle réellement éjectée). Le
+    fait que l'app officielle ne s'arrête pas non plus le confirme. → ce cas **nécessite un capteur
+    externe** : la CV (réserve vide / balles au sol / aucune balle ne franchit le filet), ou éventuellement
+    un comptage heuristique (balles tirées vs capacité), plus fragile.
