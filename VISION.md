@@ -84,3 +84,13 @@ Le lanceur envoie des balles aux enfants qui doivent les renvoyer avec une raque
   Objectif : garder le joueur dans sa **zone de progression** (ni trop facile ni décourageant), en boucle
   fermée sur sa performance réelle. S'appuie sur la même détection CV que le scorer, et pilote les mêmes
   leviers robot que le contrôle vocal (cadence, vitesse, effet, placement, alternances).
+
+- **Arrêt/pause automatique (présence joueur + état du lanceur)** : fonctionnalités simples mais utiles.
+  - **Joueur absent** (via CV) : détecter que le joueur **pose sa raquette** ou **quitte la table**
+    → arrêter le robot automatiquement (plus de balles envoyées dans le vide, sécurité).
+  - **Plus de balles alimentées** : mettre le robot en pause le temps que le joueur débloque la réserve
+    ou ramasse les balles au sol. **En partie détectable sans caméra** : le robot expose déjà les états
+    `BALL_JAMMED_*` / `BALL_PERMANENTLY_JAMMED` (`AmicusMode`, cf. [`PROTOCOL.md`](PROTOCOL.md)) et arrête
+    d'émettre des notifications `PlayingBall` quand plus rien ne part → on peut pauser + prévenir
+    ("recharge les balles") sans CV. La CV confirmerait (réserve vide, balles au sol) et relancerait
+    automatiquement une fois la réserve rechargée.
