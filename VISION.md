@@ -59,6 +59,11 @@ Le lanceur envoie des balles aux enfants qui doivent les renvoyer avec une raque
 
 - **Profils joueur (gaucher / droitier)** : « coup droit » et « revers » sont mappés en dur pour un
   droitier (coup droit = côté droit de la table). Pour un gaucher c'est inversé — constaté en session
-  réelle (2026-07-08 : un gaucher demandant des coups droits recevait des balles côté revers). À terme :
-  un profil par joueur (main dominante), idéalement reconnu automatiquement par **identification vocale**
-  (qui parle → quel profil) pour basculer le mapping sans réglage manuel.
+  réelle (2026-07-08 : un gaucher demandant des coups droits recevait des balles côté revers). Le mapping
+  gaucher/droitier doit donc s'adapter au joueur. Deux pistes de détection automatique (sans réglage
+  manuel) :
+  - **Identification vocale** : reconnaître qui parle → charger son profil (main dominante).
+  - **Vision par ordinateur** : détecter dans quelle main est la raquette (gauche/droite). Élégant car la
+    brique CV est **déjà prévue** pour le scorer automatique (caméra + détection de la balle/du joueur) —
+    la latéralité tomberait comme un sous-produit, sans micro ni profil à configurer. C'est probablement
+    la piste la plus naturelle une fois la vision en place.
