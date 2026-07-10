@@ -160,6 +160,7 @@ let llm = null;
 let voice = null;
 let listening = false;
 let wakeLock = null;
+let intentionalWakeRelease = false; // vrai quand C'EST NOUS qui relachons (stop ecoute) -> pas une veille subie
 
 // Le robot exige un keep-alive regulier pendant la lecture continue (cf. PROTOCOL.md) -- si l'appareil
 // qui heberge cette page se met en veille, plus rien ne s'envoie et le robot s'arrete tout seul (meme
@@ -173,7 +174,16 @@ async function acquireWakeLock() {
   }
   try {
     wakeLock = await navigator.wakeLock.request('screen');
-    wakeLock.addEventListener('release', () => addLog('⚠️ Wake Lock relache (ecran remis en veille ?)'));
+    wakeLock.addEventListener('release', () => {
+      // On distingue le relachement VOLONTAIRE (on a stoppe l'ecoute) du relachement SPONTANE (l'OS
+      // reprend l'ecran / onglet en arriere-plan) -- seul ce dernier est un vrai symptome a diagnostiquer.
+      if (intentionalWakeRelease) {
+        intentionalWakeRelease = false;
+        addLog('🔓 Wake lock relache (ecoute stoppee)');
+      } else {
+        addLog('⚠️ Wake lock relache SPONTANEMENT (ecran en veille / onglet en arriere-plan ?)');
+      }
+    });
     addLog('🔒 Ecran maintenu actif (wake lock)');
   } catch (err) {
     addLog(`⚠️ Impossible d'obtenir le wake lock: ${err.message}`);
@@ -181,6 +191,7 @@ async function acquireWakeLock() {
 }
 
 function releaseWakeLock() {
+  intentionalWakeRelease = true; // marque avant release() : l'event 'release' saura que c'est volontaire
   wakeLock?.release();
   wakeLock = null;
 }
