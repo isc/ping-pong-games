@@ -76,3 +76,11 @@ Le lanceur envoie des balles aux enfants qui doivent les renvoyer avec une raque
   (les formules exactes speed/spin/verticalAngle → point de chute sont dans [`PROTOCOL.md`](PROTOCOL.md)) :
   au lieu de tâtonner, un asservissement en boucle fermée « observe → corrige ». Utile aussi pour
   s'adapter automatiquement à la position du robot / de la table (qui change d'une installation à l'autre).
+
+- **Coach adaptatif (difficulté progressive)** : le scorer détecte déjà « balle rattrapée / ratée » —
+  au-delà du jeu et de l'animation de points pour enfants, ce signal alimente un **coach** (enfant ou
+  adulte) qui fait **monter la difficulté progressivement** selon le taux de renvoi : si le joueur
+  enchaîne les retours → accélérer / varier les placements / ajouter de l'effet ; s'il rate → redescendre.
+  Objectif : garder le joueur dans sa **zone de progression** (ni trop facile ni décourageant), en boucle
+  fermée sur sa performance réelle. S'appuie sur la même détection CV que le scorer, et pilote les mêmes
+  leviers robot que le contrôle vocal (cadence, vitesse, effet, placement, alternances).
