@@ -56,6 +56,34 @@ export const CASES = [
     },
   },
   {
+    name: 'valeur absolue cadence : "mets 40 balles par minute" -> adjust cadence target 40',
+    turns: ['mets 40 balles par minute'],
+    expect([r]) {
+      const adj = adjustsFor(r, 'cadence');
+      assert.equal(adj.length, 1, 'attendu un adjust cadence');
+      assert.equal(adj[0].target, 40, 'target absolu attendu = 40');
+    },
+  },
+  {
+    name: 'valeur absolue meme avec un mot "baisse" : "baisse et passe a 20" -> target 20',
+    turns: ['baisse la cadence et passe a 20 balles par minute'],
+    expect([r]) {
+      const adj = adjustsFor(r, 'cadence');
+      assert.equal(adj.length, 1, 'attendu un adjust cadence');
+      assert.equal(adj[0].target, 20, 'le chiffre l\'emporte sur "baisse" -> target 20');
+    },
+  },
+  {
+    name: 'relatif reste relatif : "plus vite" -> pas de target',
+    turns: ['plus vite les balles'],
+    expect([r]) {
+      const adj = adjustsFor(r, 'cadence');
+      assert.equal(adj.length, 1, 'attendu un adjust cadence');
+      assert.equal(adj[0].target, null, '"plus vite" ne doit PAS avoir de target (relatif)');
+      assert.equal(adj[0].direction, 'increase');
+    },
+  },
+  {
     name: 'ralentir un peu -> magnitude small',
     turns: ['ralentis un peu la cadence'],
     expect([r]) {

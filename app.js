@@ -279,7 +279,7 @@ async function handleTranscriptInner(transcript) {
     for (const a of result.actions) {
       switch (a.action) {
         case 'adjust':
-          await applyAdjust(a.parameter, a.direction, a.magnitude);
+          await applyAdjust(a.parameter, a.direction, a.magnitude, a.target);
           break;
         case 'stop':
           await robot.stopPlay();
@@ -325,11 +325,16 @@ function scaledStep(nominal, magnitude) {
   return Math.max(1, Math.round(nominal * factor));
 }
 
-// Aiguille une action "adjust" vers la cadence (commande globale) ou un champ du descripteur de balle.
-async function applyAdjust(parameter, direction, magnitude) {
-  const sign = direction === 'decrease' ? -1 : +1; // "increase" par defaut
+// Aiguille une action "adjust" vers la cadence (commande globale) ou un champ du descripteur de balle,
+// en valeur ABSOLUE si `target` est fourni ("mets 40 balles par minute"), sinon en cran relatif.
+async function applyAdjust(parameter, direction, magnitude, target) {
+  const hasTarget = target != null && Number.isFinite(target);
   if (parameter === 'cadence') {
-    await adjustCadence(sign * scaledStep(CADENCE_STEP, magnitude));
+    if (hasTarget) await setCadence(target);
+    else {
+      const sign = direction === 'decrease' ? -1 : +1;
+      await setCadence((await currentCadence()) + sign * scaledStep(CADENCE_STEP, magnitude));
+    }
     return;
   }
   const field = PARAM_TO_APP_FIELD[parameter];
@@ -337,32 +342,31 @@ async function applyAdjust(parameter, direction, magnitude) {
     addLog(`⚠️ Parametre adjust inconnu: ${parameter}`);
     return;
   }
-  await adjustBallParam(parameter, field, sign * scaledStep(APP_STEP[parameter], magnitude));
-}
-
-async function adjustCadence(delta) {
-  let current;
-  try {
-    current = await robot.getBallPerMin();
-  } catch {
-    current = robot.lastKnownBallPerMin ?? DEFAULT_BALL_PER_MIN;
-  }
-  const next = Math.max(CADENCE_MIN, Math.min(CADENCE_MAX, current + delta));
-  await robot.setBallPerMin(next);
-  cadenceInitialized = true; // l'utilisateur a fixe la cadence : le prochain lancer ne l'ecrase pas
-  addLog(`Cadence: ${current} → ${next} balles/min`);
-}
-
-// Modifie un champ continu du tir courant (vitesse/hauteur/effet) par un cran relatif EN UNITES APP,
-// clampe sur sa plage app. Si un echange est en cours, le changement se fait sentir au vol ; sinon il
-// est memorise et s'appliquera au prochain lancer.
-async function adjustBallParam(parameter, field, delta) {
   const { min, max } = APP_FIELD_RANGE[field];
   const before = currentShot[field];
-  const after = Math.max(min, Math.min(max, before + delta));
+  const after = hasTarget
+    ? Math.max(min, Math.min(max, Math.round(target)))
+    : Math.max(min, Math.min(max, before + (direction === 'decrease' ? -1 : +1) * scaledStep(APP_STEP[parameter], magnitude)));
   currentShot[field] = after;
   addLog(`${parameter}: ${before} → ${after} (app ${min}..${max})`);
   await reapplyIfPlaying();
+}
+
+// Lit la cadence courante du robot (repli sur la derniere connue / defaut si la lecture echoue).
+async function currentCadence() {
+  try {
+    return await robot.getBallPerMin();
+  } catch {
+    return robot.lastKnownBallPerMin ?? DEFAULT_BALL_PER_MIN;
+  }
+}
+
+// Fixe la cadence a une valeur absolue (clampee), qu'elle vienne d'un "mets 40" ou d'un cran relatif.
+async function setCadence(value) {
+  const next = Math.max(CADENCE_MIN, Math.min(CADENCE_MAX, Math.round(value)));
+  await robot.setBallPerMin(next);
+  cadenceInitialized = true; // l'utilisateur a fixe la cadence : le prochain lancer ne l'ecrase pas
+  addLog(`Cadence → ${next} balles/min`);
 }
 
 // Descripteurs fil du programme courant : chaque position croisee avec les reglages continus courants,

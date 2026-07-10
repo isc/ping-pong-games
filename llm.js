@@ -27,9 +27,16 @@ Chaque action de la liste "actions" est un objet avec ces champs :
 - "positions": null | liste de {"shot_type":..., "zone":...} -- uniquement pour "pattern"
 
 Types d'action :
-- "adjust" : regler UN parametre continu du robot par crans relatifs (jamais de valeur absolue). Choisis
-  "parameter" et "direction" ("increase" = plus, "decrease" = moins, le long de l'axe naturel du parametre),
-  et "magnitude" ("small" pour "un peu"/"legerement", "large" pour "beaucoup", sinon "normal") :
+- "adjust" : regler UN parametre continu du robot. Deux facons :
+  * VALEUR ABSOLUE : si l'utilisateur donne un CHIFFRE precis pour le parametre ("mets 40 balles par
+    minute", "passe a 20", "la cadence a 60", "envoie du 120", "vitesse a 15"), mets ce nombre dans
+    "target" et laisse "direction"/"magnitude" a null. C'est PRIORITAIRE sur le relatif : "baisse et
+    passe a 40" -> target 40 (le chiffre l'emporte, meme avec un mot "baisse"/"monte" a cote).
+    "target" concerne surtout "cadence" (balles/min) et "ball_speed" (1..25).
+  * RELATIF : sinon, choisis "direction" ("increase"=plus, "decrease"=moins, le long de l'axe naturel)
+    et "magnitude" ("small" pour "un peu"/"legerement", "large" pour "beaucoup", sinon "normal"), et
+    laisse "target" a null.
+  Dans les deux cas choisis "parameter" :
   * "cadence" : le RYTHME (nombre de balles par minute). C'est le defaut de TOUT mot de tempo --
     "plus vite"/"moins vite", "plus/moins rapide", "plus lent", "plus souvent", "plus de balles",
     "change le rythme/la frequence" -- MEME suivi de "les balles" ("moins vite les balles" = cadence).
@@ -93,7 +100,7 @@ Ils ne declenchent JAMAIS un side_spin. Le side_spin n'existe que si le mot "eff
 "a gauche ou a droite ?") = shot zone "left", jamais side_spin.
 
 Reponds TOUJOURS avec un unique objet JSON, sans balises markdown ni texte autour, exactement de cette forme :
-{"actions": [{"action": "adjust|stop|resume|shot|pattern|report|clarify|none", "parameter": null|"cadence"|"ball_speed"|"trajectory"|"spin"|"side_spin", "direction": null|"increase"|"decrease", "magnitude": null|"small"|"normal"|"large", "shot_type": null|"forehand"|"backhand", "zone": null|"left"|"right"|"center", "positions": null|[{"shot_type":...,"zone":...}]}], "question": null|"...", "say": "courte confirmation orale en francais pour l'ensemble, ou vide"}
+{"actions": [{"action": "adjust|stop|resume|shot|pattern|report|clarify|none", "parameter": null|"cadence"|"ball_speed"|"trajectory"|"spin"|"side_spin", "direction": null|"increase"|"decrease", "magnitude": null|"small"|"normal"|"large", "target": null|<nombre>, "shot_type": null|"forehand"|"backhand", "zone": null|"left"|"right"|"center", "positions": null|[{"shot_type":...,"zone":...}]}], "question": null|"...", "say": "courte confirmation orale en francais pour l'ensemble, ou vide"}
 
 Ne fais AUCUN raisonnement ni brouillon avant de repondre : produis directement et immediatement le JSON final,
 sans etapes intermediaires. La reponse doit tenir en une seule ligne courte.`;
@@ -248,13 +255,18 @@ export class LlmInterpreter {
       };
     }
     console.log('[LLM] JSON parse:', parsed);
-    const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
+    // Filtre les elements non-objets : le modele bave parfois un bout du schema comme fausse "action"
+    // (ex: la chaine "say_short_confirmation..."). On ne garde que les vrais objets-action.
+    const actions = (Array.isArray(parsed.actions) ? parsed.actions : []).filter(
+      (a) => a && typeof a === 'object' && !Array.isArray(a)
+    );
     return {
       actions: actions.map((a) => ({
         action: a.action ?? 'none',
         parameter: a.parameter ?? null,
         direction: a.direction ?? null,
         magnitude: a.magnitude ?? null,
+        target: a.target == null || a.target === '' ? null : Number(a.target),
         shot_type: a.shot_type ?? null,
         zone: a.zone ?? null,
         positions: Array.isArray(a.positions)
