@@ -67,3 +67,12 @@ Le lanceur envoie des balles aux enfants qui doivent les renvoyer avec une raque
     brique CV est **déjà prévue** pour le scorer automatique (caméra + détection de la balle/du joueur) —
     la latéralité tomberait comme un sous-produit, sans micro ni profil à configurer. C'est probablement
     la piste la plus naturelle une fois la vision en place.
+
+- **Auto-correction des réglages en boucle fermée (via CV)** : aujourd'hui certains réglages voix
+  (speed/spin/trajectoire) envoient la balle **hors de la table** — l'utilisateur doit corriger à la voix.
+  Une fois la caméra en place, elle détecte le point de chute réel de chaque balle ; si la balle sort
+  (trop longue, dans le filet, à côté), le robot **ré-ajuste ses réglages tout seul** jusqu'à ramener la
+  balle dans la zone de jeu. C'est l'**automatisation de la calibration manuelle** du 2026-07-08
+  (les formules exactes speed/spin/verticalAngle → point de chute sont dans [`PROTOCOL.md`](PROTOCOL.md)) :
+  au lieu de tâtonner, un asservissement en boucle fermée « observe → corrige ». Utile aussi pour
+  s'adapter automatiquement à la position du robot / de la table (qui change d'une installation à l'autre).
