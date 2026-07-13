@@ -186,35 +186,49 @@ export class LlmInterpreter {
     // Sans timeout, un Ollama qui charge le modele a froid (ou plante) fait attendre indefiniment
     // sans jamais remonter d'erreur -- d'ou l'impression de "ne repond pas du tout".
     const TIMEOUT_MS = 45_000;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    // 1 retry sur erreur RESEAU ("Failed to fetch") : en session reelle, le wifi du telephone / le
+    // funnel a des micro-coupures qui font echouer un appel sur deux (2026-07-13). Un simple ressai
+    // apres un court delai passe au travers. On NE retente PAS un timeout (AbortError) ni une erreur
+    // HTTP (le serveur a repondu) -- seulement l'echec de connexion.
+    const MAX_ATTEMPTS = 2;
+    const RETRY_DELAY_MS = 700;
 
     let res;
-    try {
-      res = await fetch(`${this.baseUrl}/api/chat`, {
-        method: 'POST',
-        // X-Api-Key seulement s'il est defini : en prod le reverse-proxy l'exige, mais le harnais
-        // d'eval tape Ollama en direct (sans cle) et un header a `undefined` ferait planter fetch.
-        headers: { 'Content-Type': 'application/json', ...(this.apiKey ? { 'X-Api-Key': this.apiKey } : {}) },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        console.log(`[LLM] timeout apres ${TIMEOUT_MS}ms sans reponse`);
+    for (let attempt = 1; ; attempt++) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        res = await fetch(`${this.baseUrl}/api/chat`, {
+          method: 'POST',
+          // X-Api-Key seulement s'il est defini : en prod le reverse-proxy l'exige, mais le harnais
+          // d'eval tape Ollama en direct (sans cle) et un header a `undefined` ferait planter fetch.
+          headers: { 'Content-Type': 'application/json', ...(this.apiKey ? { 'X-Api-Key': this.apiKey } : {}) },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        });
+        break; // reponse recue (ok ou non : gere plus bas)
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          console.log(`[LLM] timeout apres ${TIMEOUT_MS}ms sans reponse`);
+          throw new Error(
+            `Le LLM (${this.baseUrl}) n'a pas repondu en ${TIMEOUT_MS / 1000}s. ` +
+              `Peut-etre un chargement a froid du modele sur Charras (OLLAMA_KEEP_ALIVE) -- reessaie, ` +
+              `ou verifie l'etat du conteneur Ollama.`
+          );
+        }
+        if (attempt < MAX_ATTEMPTS) {
+          console.log(`[LLM] echec reseau (tentative ${attempt}/${MAX_ATTEMPTS}), nouvel essai:`, err.message);
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
+        console.log('[LLM] fetch a echoue (reseau) apres retries:', err);
         throw new Error(
-          `Le LLM (${this.baseUrl}) n'a pas repondu en ${TIMEOUT_MS / 1000}s. ` +
-            `Peut-etre un chargement a froid du modele sur Charras (OLLAMA_KEEP_ALIVE) -- reessaie, ` +
-            `ou verifie l'etat du conteneur Ollama.`
+          `Impossible de joindre le serveur LLM (${this.baseUrl}). ` +
+            `Verifie qu'Ollama tourne sur Charras et que le reverse-proxy nginx est up. Detail: ${err.message}`
         );
+      } finally {
+        clearTimeout(timeoutId);
       }
-      console.log('[LLM] fetch a echoue (reseau):', err);
-      throw new Error(
-        `Impossible de joindre le serveur LLM (${this.baseUrl}). ` +
-          `Verifie qu'Ollama tourne sur Charras et que le reverse-proxy nginx est up. Detail: ${err.message}`
-      );
-    } finally {
-      clearTimeout(timeoutId);
     }
     const t1 = performance.now();
     console.log(`[LLM] entetes recues apres ${(t1 - t0).toFixed(0)}ms, status:`, res.status);

@@ -40,13 +40,12 @@ const APP_FIELD_RANGE = { speed: APP_RANGE.speed, verticalAngle: APP_RANGE.verti
 // Ce qui reste un choix arbitraire (a valider avec l'utilisateur) : la correspondance exacte entre
 // "revers a gauche/droite/au milieu" et une position -8..+8 precise -- seuls les points extremes
 // (-8 et +8) et le centre (0) sont confirmes sans ambiguite par le manuel.
-const ZONES = {
-  forehand: 8,
-  backhand_left: -8,
-  backhand_right: -3,
-  backhand_center: -5,
-  center: 0, // vrai centre neutre (confirme par le manuel), independant de forehand/backhand
-};
+// Positions (place app -8..+8) : gauche = negatif, droite = positif, centre = 0. Modele DROITIER pour
+// l'instant (coup droit = cote droit, revers = cote gauche) -- l'inversion gaucher est sur la roadmap
+// (cf. VISION.md). Valeurs +/-6 = clairement d'un cote sans aller a l'extreme bord (facile a ajuster).
+const ZONE_LEFT = -6;
+const ZONE_RIGHT = 6;
+const ZONE_CENTER = 0;
 
 // Reglages de balle par defaut, en UNITES APP. C'est la config du vrai drill Butterfly (exercice 79)
 // VALIDEE sur le robot le 2026-07-08 : elle tombe au milieu de la table. Le topspin (spin=2) est
@@ -59,7 +58,7 @@ let currentShot = { ...DEFAULT_SHOT };
 
 // Programme courant = liste des positions (app -8..+8) que le robot alimente en boucle. Une seule
 // position = flux continu a cet endroit ; plusieurs = alternance. Sert de base a chaque (re)lancer.
-let currentProgram = [ZONES.center];
+let currentProgram = [ZONE_CENTER];
 // `playing` : le robot alimente-t-il un flux en ce moment ? Sert a decider si un "adjust" doit
 // re-appliquer le programme au vol (echange en cours) ou juste memoriser le reglage (a plat).
 let playing = false;
@@ -283,6 +282,23 @@ async function handleTranscriptInner(transcript) {
   addLog(`→ ${JSON.stringify(result)}`);
   setStatus('🎤 En ecoute...');
 
+  // "des deux cotes", "a gauche et a droite"... : le LLM produit parfois PLUSIEURS "shot" successifs la
+  // ou il faut une ALTERNANCE. Or deux "shot" s'ecrasent (chacun recharge le programme -> seule la
+  // derniere position joue, bug observe 2026-07-13). On fusionne donc >=2 "shot" en un seul "pattern".
+  const shotActions = result.actions.filter((a) => a.action === 'shot');
+  if (shotActions.length >= 2) {
+    const positions = shotActions.map((s) => ({ shot_type: s.shot_type, zone: s.zone }));
+    let merged = false;
+    result.actions = result.actions.filter((a) => {
+      if (a.action !== 'shot') return true;
+      if (merged) return false; // on retire les shots suivants
+      Object.assign(a, { action: 'pattern', positions, shot_type: null, zone: null });
+      merged = true;
+      return true; // le 1er shot devient le pattern (a sa place dans l'ordre)
+    });
+    addLog(`↪ ${shotActions.length} tirs fusionnes en alternance (pattern)`);
+  }
+
   // Une phrase peut contenir plusieurs demandes ("remets au milieu et ralentis et relance") --
   // on execute chaque action de la liste dans l'ordre (cf. PROTOCOL.md / bug releve avec Charly :
   // avant, une seule action etait executee et les autres silencieusement perdues).
@@ -441,25 +457,22 @@ async function reportSettings(parameter) {
   await voice.speak(text);
 }
 
-// BUG corrige (2026-07-06, teste avec Charly) : l'ancienne version ignorait completement `zone`
-// des que `shotType` n'etait pas exactement "backhand" -- ex. {shot_type:null, zone:"center"} (que
-// le LLM produit couramment) retombait sur 'forehand' (tir extreme cote droit) au lieu du centre,
-// ce qui expliquait "c'est pas au centre" / "tu as change de cote" pendant le test. `zone` est
-// desormais prioritaire ; `shotType` ne sert que de repli quand `zone` est absent.
-function resolveZoneKey(shotType, zone) {
-  if (zone === 'left') return 'backhand_left';
-  if (zone === 'right') return 'backhand_right';
-  if (zone === 'center') return 'center';
-  if (shotType === 'forehand') return 'forehand';
-  if (shotType === 'backhand') return 'backhand_center';
-  return 'center'; // repli le plus sur : centre plutot qu'un tir extreme par defaut
+// Resout (shot_type, zone) -> position `place` (-8..+8). `zone` PRIORITAIRE sur `shot_type` (le LLM met
+// souvent zone="center" avec un shot_type, cf. bug 2026-07-06 ou "center" retombait sur forehand).
+// BUG 2026-07-13 corrige ICI : "right" renvoyait -3 (cote GAUCHE !) -- gauche/droite sont maintenant
+// des cotes de table symetriques. Modele droitier (coup droit=droite, revers=gauche), inversion gaucher
+// sur la roadmap.
+function resolvePlace(shotType, zone) {
+  if (zone === 'left') return ZONE_LEFT;
+  if (zone === 'right') return ZONE_RIGHT;
+  if (zone === 'center') return ZONE_CENTER;
+  if (shotType === 'forehand') return ZONE_RIGHT; // coup droit = cote droit (droitier)
+  if (shotType === 'backhand') return ZONE_LEFT; // revers = cote gauche (droitier)
+  return ZONE_CENTER; // repli le plus sur : centre plutot qu'un tir extreme
 }
 
 async function sendShot(shotType, zone) {
-  const zoneKey = resolveZoneKey(shotType, zone);
-  const placeApp = ZONES[zoneKey];
-  if (placeApp === undefined) throw new Error(`Zone inconnue: ${shotType}/${zone}`);
-  currentProgram = [placeApp]; // flux continu a cette position (avec les reglages courants)
+  currentProgram = [resolvePlace(shotType, zone)]; // flux continu a cette position
   await playCurrentProgram();
 }
 
@@ -478,11 +491,6 @@ async function sendPattern(positions) {
   if (positions.length > PATTERN_MAX_POSITIONS) {
     throw new Error(`Pattern: ${PATTERN_MAX_POSITIONS} positions maximum`);
   }
-  currentProgram = positions.map(({ shot_type, zone }) => {
-    const zoneKey = resolveZoneKey(shot_type, zone);
-    const placeApp = ZONES[zoneKey];
-    if (placeApp === undefined) throw new Error(`Zone inconnue: ${shot_type}/${zone}`);
-    return placeApp;
-  });
+  currentProgram = positions.map(({ shot_type, zone }) => resolvePlace(shot_type, zone));
   await playCurrentProgram();
 }
